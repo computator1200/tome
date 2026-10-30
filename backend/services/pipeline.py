@@ -6,6 +6,7 @@ so a page refresh (or a process restart) never loses it.
 from __future__ import annotations
 
 import asyncio
+import time
 import traceback
 
 from sqlalchemy import func, select
@@ -51,6 +52,21 @@ def request_cancel(volume_id: str) -> None:
 def _check_cancel(volume_id: str) -> None:
     if volume_id in _cancel_requested:
         raise _Cancelled()
+
+
+def _unexpected(volume_id: str, results: list, weights: list[int] | None = None) -> int:
+    """Failures that escaped a task's own handling, as a count of units.
+
+    gather(return_exceptions=True) keeps one bad task from cancelling its
+    siblings, but it also hides whatever that task raised. Anything other than a
+    stop request is a failed unit and is counted, never silently dropped.
+    """
+    failed = 0
+    for i, res in enumerate(results):
+        if isinstance(res, BaseException) and not isinstance(res, _Cancelled):
+            log.error(f"[{volume_id}] unexpected task failure: {res!r}")
+            failed += weights[i] if weights else 1
+    return failed
 
 
 def _concurrency() -> int:
@@ -209,6 +225,12 @@ async def process_volume(volume_id: str, resume: bool = False) -> None:
         store = get_store()
         log.info(f"[{volume_id}] === pipeline start: kind={volume.kind} "
                  f"engine={volume.engine_mode} resume={resume} ===")
+        if not resume:
+            # A fresh run starts the bill again; a resume adds to it.
+            job.llm_calls = job.prompt_tokens = job.completion_tokens = 0
+            job.llm_seconds = job.wall_seconds = 0.0
+        usage = llm.track_usage()
+        started = time.monotonic()
         try:
             _check_cancel(volume_id)
             volume.status = VolumeStatus.PROCESSING.value
@@ -224,9 +246,11 @@ async def process_volume(volume_id: str, resume: bool = False) -> None:
             series_ctx["memory"] = memgraph.render_context(
                 await memgraph.build_context(session, series.id, volume.order))
 
+            unit = "page(s)"
             if volume.kind == VolumeKind.TEXT.value:
-                # Digital source: chapters/blocks already sit in pages/regions —
-                # no classify, no OCR, straight to text translation.
+                # Digital source: chapters/blocks already sit in pages/regions,
+                # so no classify and no OCR, straight to text translation.
+                unit = "chunk(s)"
                 failed = await _run_text_volume(session, volume, series, job, resume, series_ctx)
             else:
                 # --- Stage 1: classify (cheap, always re-run) ---
@@ -256,8 +280,8 @@ async def process_volume(volume_id: str, resume: bool = False) -> None:
                 volume.status = VolumeStatus.ERROR.value
                 await _set_job(
                     session, job, status=JobStatus.ERROR.value, step="done",
-                    message=f"{failed} page(s) failed. Retranslate or Resume to retry them.",
-                    error=f"{failed} page(s) failed",
+                    message=f"{failed} {unit} failed. Retranslate or Resume to retry them.",
+                    error=f"{failed} {unit} failed",
                 )
             else:
                 # "Done" with nothing to show is the most misleading state the app
@@ -287,6 +311,7 @@ async def process_volume(volume_id: str, resume: bool = False) -> None:
                            message=f"Failed during {failed_step}", error=str(e))
         finally:
             _cancel_requested.discard(volume_id)
+            await _save_usage(volume_id, usage, time.monotonic() - started)
 
 
 # Text-volume translation chunking: a chapter can hold hundreds of blocks, so
@@ -358,8 +383,8 @@ async def _run_text_volume(session, volume, series, job, resume, series_ctx) -> 
             await _set_job(session, job, current=state["done"],
                            message=f"chapter {page.index}: {len(regions)} blocks translated")
 
-    await asyncio.gather(*(handle(p, rs) for p, rs in chunks), return_exceptions=True)
-    return state["failed"]
+    results = await asyncio.gather(*(handle(p, rs) for p, rs in chunks), return_exceptions=True)
+    return state["failed"] + _unexpected(volume.id, results)
 
 
 async def _run_vision(session, store, volume, series, job, text_pages, resume, series_ctx) -> int:
@@ -405,8 +430,8 @@ async def _run_vision(session, store, volume, series, job, text_pages, resume, s
                            message=f"page {page.index}: {len(result.get('regions', []))} regions")
 
     # One page raising must never cancel its siblings mid-flight.
-    await asyncio.gather(*(handle(p) for p in todo), return_exceptions=True)
-    return state["failed"]
+    results = await asyncio.gather(*(handle(p) for p in todo), return_exceptions=True)
+    return state["failed"] + _unexpected(volume.id, results)
 
 
 async def _run_ocr_text(session, store, volume, series, job, text_pages, resume, series_ctx) -> int:
@@ -426,7 +451,7 @@ async def _run_ocr_text(session, store, volume, series, job, text_pages, resume,
             ]
         else:
             to_ocr.append(page)
-    state = {"done": len(text_pages) - len(to_ocr)}
+    state = {"done": len(text_pages) - len(to_ocr), "failed": 0}
 
     if backend == "vision":
         sem = asyncio.Semaphore(_concurrency())
@@ -440,8 +465,15 @@ async def _run_ocr_text(session, store, volume, series, job, text_pages, resume,
                 try:
                     regions = await asyncio.to_thread(llm.ocr_page_vision, series_ctx, img)
                 except llm.LLMError as e:
+                    # A page that could not be read is a failed page, not an
+                    # empty one: counting it keeps the volume out of "done".
                     log.warning(f"[{volume.id}] OCR page {page.index} failed: {e}")
-                    regions = []
+                    async with lock:
+                        state["failed"] += 1
+                        state["done"] += 1
+                        await _set_job(session, job, current=state["done"],
+                                       message=f"page {page.index}: OCR failed (Resume retries it)")
+                    return
             async with lock:
                 page_regions[page.id] = regions
                 await _replace_regions(session, page, regions)
@@ -452,7 +484,8 @@ async def _run_ocr_text(session, store, volume, series, job, text_pages, resume,
                 await _set_job(session, job, current=state["done"],
                                message=f"page {page.index}: {len(regions)} regions")
 
-        await asyncio.gather(*(ocr_one(p) for p in to_ocr), return_exceptions=True)
+        results = await asyncio.gather(*(ocr_one(p) for p in to_ocr), return_exceptions=True)
+        state["failed"] += _unexpected(volume.id, results)
     else:
         from services.ocr import ocr_page, unload_ocr
         for page in to_ocr:
@@ -481,6 +514,7 @@ async def _run_ocr_text(session, store, volume, series, job, text_pages, resume,
     batch_size = max(1, min(volume.batch_size, 20))
     batches = [pending[i:i + batch_size] for i in range(0, len(pending), batch_size)]
     total_batches = len(batches)
+    ocr_failed = state["failed"]
     await _set_job(session, job, step="translating", current=0, total=total_batches,
                    message="Translating...")
     sem = asyncio.Semaphore(_concurrency())
@@ -561,8 +595,25 @@ async def _run_ocr_text(session, store, volume, series, job, text_pages, resume,
             state["done"] += 1
             await _set_job(session, job, current=state["done"], message=f"batch {state['done']}/{total_batches}")
 
-    await asyncio.gather(*(handle(b) for b in batches), return_exceptions=True)
-    return state["failed"]
+    results = await asyncio.gather(*(handle(b) for b in batches), return_exceptions=True)
+    return ocr_failed + state["failed"] + _unexpected(volume.id, results, [len(b) for b in batches])
+
+
+async def _save_usage(volume_id: str, usage: dict, wall: float) -> None:
+    """Add this run's model usage and wall time to the volume's job.
+
+    Uses its own session: the run's session may be mid-rollback when this runs.
+    """
+    async with SessionLocal() as s:
+        job = (await s.execute(select(Job).where(Job.volume_id == volume_id))).scalar_one_or_none()
+        if job is None:
+            return
+        job.llm_calls = (job.llm_calls or 0) + usage["calls"]
+        job.prompt_tokens = (job.prompt_tokens or 0) + usage["prompt_tokens"]
+        job.completion_tokens = (job.completion_tokens or 0) + usage["completion_tokens"]
+        job.llm_seconds = (job.llm_seconds or 0.0) + usage["seconds"]
+        job.wall_seconds = (job.wall_seconds or 0.0) + wall
+        await s.commit()
 
 
 async def _replace_regions(session: AsyncSession, page: Page, regions: list[dict]) -> None:

@@ -61,6 +61,13 @@ _ADDED_COLUMNS: dict[str, list[tuple[str, str]]] = {
         # chapter heading for text volumes (a text "page" is one chapter)
         ("chapter_title", "TEXT DEFAULT ''"),
     ],
+    "jobs": [
+        ("llm_calls", "INTEGER DEFAULT 0"),
+        ("prompt_tokens", "INTEGER DEFAULT 0"),
+        ("completion_tokens", "INTEGER DEFAULT 0"),
+        ("llm_seconds", "FLOAT DEFAULT 0"),
+        ("wall_seconds", "FLOAT DEFAULT 0"),
+    ],
 }
 
 

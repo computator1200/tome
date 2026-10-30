@@ -178,6 +178,9 @@ export interface ProviderSettings {
   timeout: number;
   concurrency: number;
   ocr_backend: string;
+  price_in: number | null;
+  price_out: number | null;
+  volume_concurrency: number;
   api_key_set: boolean;
   api_key_hint: string;
 }
@@ -189,6 +192,9 @@ export interface ProviderUpdate {
   timeout?: number;
   concurrency?: number;
   ocr_backend?: string;
+  price_in?: number | null;
+  price_out?: number | null;
+  volume_concurrency?: number;
   api_key?: string;
 }
 

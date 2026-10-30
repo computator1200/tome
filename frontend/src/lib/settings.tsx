@@ -9,6 +9,8 @@ export interface Settings {
   overlayDim: number;
   /** Translation text size in pixels. */
   textSize: number;
+  /** Set each translation where its source text sits, when the page has boxes. */
+  placeText: boolean;
   /** Theme accent color as a CSS color (any valid value). Empty = theme default. */
   accentColor: string;
   /** Light or dark theme. */
@@ -23,6 +25,7 @@ export const DEFAULT_SETTINGS: Settings = {
   showTranslationByDefault: true,
   overlayDim: 0.85,
   textSize: 15,
+  placeText: true,
   accentColor: DEFAULT_ACCENT,
   themeMode: "dark",
 };

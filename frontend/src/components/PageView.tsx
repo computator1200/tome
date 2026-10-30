@@ -1,16 +1,42 @@
-import type { Page } from "@/types";
+import { useLayoutEffect, useRef, useState } from "react";
+import type { Page, Region } from "@/types";
 import { cn } from "@/lib/utils";
+
+/** Text that shrinks until it fits its box, from `max` down to 7px. */
+function FitText({ text, max }: { text: string; max: number }) {
+  const ref = useRef<HTMLDivElement>(null);
+  const [size, setSize] = useState(max);
+  useLayoutEffect(() => setSize(max), [text, max]);
+  useLayoutEffect(() => {
+    const el = ref.current;
+    if (el && size > 7 && el.scrollHeight > el.clientHeight + 1) setSize((s) => s - 0.5);
+  }, [size, text]);
+  return (
+    <div ref={ref} className="h-full w-full overflow-hidden leading-tight" style={{ fontSize: `${size}px` }}>
+      {text}
+    </div>
+  );
+}
+
+/** Translated regions with boxes, or none unless every translated region has one. */
+function placedRegions(regions: Region[]): Region[] {
+  const translated = regions.filter((r) => r.english_text.trim());
+  if (!translated.length || translated.some((r) => r.width <= 0 || r.height <= 0)) return [];
+  return translated;
+}
 
 export default function PageView({
   page,
   showTranslation,
   overlayDim = 0.85,
   textSize = 15,
+  placeText = true,
 }: {
   page: Page;
   showTranslation: boolean;
   overlayDim?: number;
   textSize?: number;
+  placeText?: boolean;
 }) {
   const isTextPage = page.page_type === "text" || page.page_type === "mixed";
   // Read regions in OCR order, which follows the source language reading direction.
@@ -18,6 +44,7 @@ export default function PageView({
     ? page.regions.map((r) => r.english_text.trim()).filter(Boolean)
     : [];
   const showOverlay = showTranslation && lines.length > 0;
+  const placed = showOverlay && placeText ? placedRegions(page.regions) : [];
 
   // Digital (text) volumes have no page image — a "page" is a chapter. Render
   // it as a plain reading column: translation when available, source otherwise.
@@ -44,6 +71,36 @@ export default function PageView({
     );
   }
 
+  if (placed.length) {
+    // Each translation covers its source block, so the art around it stays visible.
+    return (
+      <div className="relative inline-block max-h-full">
+        <img
+          src={page.image_url}
+          alt={`Page ${page.index + 1}`}
+          className="max-h-[calc(100vh-7rem)] w-auto select-none object-contain"
+          draggable={false}
+        />
+        {placed.map((r) => (
+          <div
+            key={r.id}
+            className="absolute rounded-sm p-0.5 text-foreground"
+            style={{
+              left: `${r.x}%`,
+              top: `${r.y}%`,
+              width: `${r.width}%`,
+              height: `${r.height}%`,
+              fontFamily: "var(--font-serif)",
+              backgroundColor: `color-mix(in srgb, var(--background) ${Math.round(overlayDim * 100)}%, transparent)`,
+            }}
+          >
+            <FitText text={r.english_text} max={textSize} />
+          </div>
+        ))}
+      </div>
+    );
+  }
+
   return (
     <div className="relative inline-block max-h-full">
       <img
@@ -56,8 +113,8 @@ export default function PageView({
         draggable={false}
       />
       {showOverlay && (
-        // Simple, unfitted overlay: dim the scan and lay the translation on top
-        // as a readable block. Avoids per-region bbox placement entirely.
+        // No boxes for this page: dim the scan and lay the translation on top
+        // as one readable column.
         <div
           className="absolute inset-0 overflow-y-auto backdrop-blur-[2px]"
           // Theme-aware scrim: mixes the current background colour with the dim.

@@ -11,7 +11,9 @@ from __future__ import annotations
 
 import base64
 import json
+import threading
 import time
+from contextvars import ContextVar
 
 from openai import (
     APIConnectionError,
@@ -58,6 +60,33 @@ def _get_client() -> OpenAI:
         )
         _client_key = key
     return _client
+
+
+# Usage of the model calls made under track_usage(). The calls run in worker
+# threads (asyncio.to_thread copies the context), so the shared counter is
+# guarded by a lock.
+_usage: ContextVar[dict | None] = ContextVar("llm_usage", default=None)
+_usage_lock = threading.Lock()
+
+
+def track_usage() -> dict:
+    """Start counting the model calls made from this context. Returns the counter
+    ({calls, prompt_tokens, completion_tokens, seconds}), which fills in place."""
+    acc = {"calls": 0, "prompt_tokens": 0, "completion_tokens": 0, "seconds": 0.0}
+    _usage.set(acc)
+    return acc
+
+
+def _record(resp, seconds: float) -> None:
+    acc = _usage.get()
+    if acc is None:
+        return
+    u = getattr(resp, "usage", None)
+    with _usage_lock:
+        acc["calls"] += 1
+        acc["seconds"] += seconds
+        acc["prompt_tokens"] += int(getattr(u, "prompt_tokens", 0) or 0)
+        acc["completion_tokens"] += int(getattr(u, "completion_tokens", 0) or 0)
 
 
 # Cap the glossary injected into each prompt so it can't grow unbounded across
@@ -183,6 +212,7 @@ def _chat(model: str, content, max_retries: int = 3) -> dict:
         try:
             t0 = time.time()
             resp = _create(client, model, messages)
+            _record(resp, time.time() - t0)
             raw = (resp.choices[0].message.content or "").strip()
             log.info(f"llm {model} returned {len(raw)} chars in {time.time()-t0:.1f}s")
             return json.loads(_strip_fences(raw))
@@ -352,15 +382,58 @@ def summarize(series_ctx: dict, text: str, model: str | None = None) -> str:
     )
     try:
         client = _get_client()
+        t0 = time.time()
         resp = client.chat.completions.create(
             model=model or provider.get()["model"],
             messages=[{"role": "user", "content": prompt}],
             temperature=0.3,
         )
+        _record(resp, time.time() - t0)
         return (resp.choices[0].message.content or "").strip()
     except Exception as e:  # noqa: BLE001 — summary is optional, never fail the volume
         log.warning(f"summary generation failed: {e}")
         return ""
+
+
+_BOX_PROMPT = (
+    '"box": [x, y, width, height] is where the block sits on the page, as\n'
+    "percentages of the page's width and height (0 to 100), measured from the\n"
+    "top-left corner. Cover the whole block.")
+
+
+def _box(raw) -> dict:
+    """A region's bounding box as page percentages, or all zeros when unusable.
+
+    Models disagree on scale: some answer in percent as asked, some in 0-1 and
+    some in 0-1000 (the convention several vision models were trained on). The
+    scale is inferred from the largest value, the box is clamped to the page,
+    and anything degenerate becomes "no box" rather than a wrong one.
+    """
+    zero = {"x": 0.0, "y": 0.0, "width": 0.0, "height": 0.0}
+    if isinstance(raw, dict):
+        raw = [raw.get("x"), raw.get("y"), raw.get("width", raw.get("w")),
+               raw.get("height", raw.get("h"))]
+    if not isinstance(raw, (list, tuple)) or len(raw) != 4:
+        return zero
+    try:
+        x, y, w, h = (float(v) for v in raw)
+    except (TypeError, ValueError):
+        return zero
+    top = max(x, y, w, h)
+    if top <= 1.0:
+        scale = 100.0
+    elif top > 100.5:
+        scale = 0.1 if top <= 1000.5 else 0.0
+    else:
+        scale = 1.0
+    if not scale:
+        return zero
+    x, y, w, h = x * scale, y * scale, w * scale, h * scale
+    x, y = min(max(x, 0.0), 100.0), min(max(y, 0.0), 100.0)
+    w, h = min(w, 100.0 - x), min(h, 100.0 - y)
+    if w < 0.5 or h < 0.5:
+        return zero
+    return {"x": round(x, 2), "y": round(y, 2), "width": round(w, 2), "height": round(h, 2)}
 
 
 def ocr_page_vision(series_ctx: dict, image_bytes: bytes, model: str | None = None) -> list[dict]:
@@ -374,8 +447,9 @@ def ocr_page_vision(series_ctx: dict, image_bytes: bytes, model: str | None = No
 Transcribe ALL text on the page in natural reading order, in the language it is
 written in (for vertical text, read top-to-bottom, right-to-left). Do NOT
 translate. One entry per block or paragraph.
+{_BOX_PROMPT}
 Return ONLY a JSON object (no markdown, no prose):
-{{"regions": [{{"source_text": "<transcribed text>"}}]}}"""
+{{"regions": [{{"source_text": "<transcribed text>", "box": [x, y, width, height]}}]}}"""
     content = [
         {"type": "text", "text": prompt},
         {"type": "image_url", "image_url": {"url": f"data:image/jpeg;base64,{b64}"}},
@@ -385,7 +459,9 @@ Return ONLY a JSON object (no markdown, no prose):
     for i, r in enumerate(data.get("regions", [])):
         text = r.get("source_text", "").strip() if isinstance(r, dict) else str(r).strip()
         if text:
-            regions.append({"id": f"col_{i}", "order": i, "japanese_text": text, "confidence": 85.0})
+            box = _box(r.get("box")) if isinstance(r, dict) else _box(None)
+            regions.append({"id": f"col_{i}", "order": i, "japanese_text": text,
+                            "confidence": 85.0, **box})
     return regions
 
 
@@ -393,8 +469,10 @@ def vision_ocr_translate(series_ctx: dict, glossary: list[dict], image_bytes: by
                          model: str | None = None) -> dict:
     """One-pass OCR + translation of a page image via a multimodal model.
 
-    Returns: {"regions": [{"id","x","y","width","height","japanese_text","english_text"}],
-              "new_terms": {...}}
+    Returns: {"regions": [{"id","order","x","y","width","height","japanese_text",
+              "english_text","confidence"}], "new_terms": {...}, "memory": {...}}
+    Boxes are page percentages; a region the model gave no usable box for has
+    all four at 0, and the reader lays it out in reading order instead.
     """
     src = language.describe_source(series_ctx.get("source_language"),
                                   series_ctx.get("detected_language"))
@@ -410,7 +488,7 @@ top-to-bottom, right-to-left) and translate each block to fluent {tgt}.
 {_context_block(series_ctx, glossary)}Return ONLY a JSON object with this EXACT structure (no markdown, no prose):
 {{
   "regions": [
-    {{"source_text": "<original>", "english_text": "<translation>"}}
+    {{"source_text": "<original>", "english_text": "<translation>", "box": [x, y, width, height]}}
   ],
   "new_terms": {{
     "characters": {{"<name>": "<translated_name>"}},
@@ -422,7 +500,8 @@ top-to-bottom, right-to-left) and translate each block to fluent {tgt}.
     "relations": [{{"src": "<entity>", "relation": "<verb>", "dst": "<entity>"}}]
   }}
 }}
-List regions in reading order. Only include entities that appear on this page,
+List regions in reading order. {_BOX_PROMPT}
+Only include entities that appear on this page,
 and relations only where the page states them.
 Allowed relations: serves, works_for, member_of, sibling_of, parent_of,
 child_of, married_to, lives_in, born_in, located_in, owns, knows, leads,
@@ -447,6 +526,7 @@ attends, teaches, friend_of, rival_of."""
             "japanese_text": str(r.get("source_text") or r.get("japanese_text") or ""),
             "english_text": str(r.get("english_text") or ""),
             "confidence": 90.0,
+            **_box(r.get("box")),
         })
     new_terms = data.get("new_terms") or {}
     if not isinstance(new_terms, dict):

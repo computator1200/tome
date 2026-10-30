@@ -191,6 +191,9 @@ function ProviderCard() {
   const [visionModel, setVisionModel] = useState("");
   const [apiKey, setApiKey] = useState("");
   const [concurrency, setConcurrency] = useState(4);
+  const [volumeConcurrency, setVolumeConcurrency] = useState(1);
+  const [priceIn, setPriceIn] = useState("");
+  const [priceOut, setPriceOut] = useState("");
   const [ocrBackend, setOcrBackend] = useState("vision");
   const [version, setVersion] = useState<{ version: string; commit: string } | null>(null);
   const [localOcr, setLocalOcr] = useState(true);
@@ -220,14 +223,19 @@ function ProviderCard() {
         setModel(s.model);
         setVisionModel(s.vision_model);
         setConcurrency(s.concurrency);
+        setVolumeConcurrency(s.volume_concurrency);
+        setPriceIn(s.price_in == null ? "" : String(s.price_in));
+        setPriceOut(s.price_out == null ? "" : String(s.price_out));
         setOcrBackend(s.ocr_backend);
       })
       .catch(() => toast.error("Could not load provider settings."));
   }, []);
 
   function patch(): ProviderUpdate {
+    const price = (v: string) => (v.trim() === "" || Number.isNaN(Number(v)) ? null : Number(v));
     const p: ProviderUpdate = {
       base_url: baseUrl, model, vision_model: visionModel, concurrency, ocr_backend: ocrBackend,
+      volume_concurrency: volumeConcurrency, price_in: price(priceIn), price_out: price(priceOut),
     };
     if (apiKey) p.api_key = apiKey; // blank = keep existing
     return p;
@@ -302,6 +310,34 @@ function ProviderCard() {
           <p className="text-xs text-muted-foreground">
             Pages/batches translated in parallel. Higher is faster but uses more of the endpoint's
             rate limit.
+          </p>
+        </div>
+        <div className="space-y-1.5">
+          <Label>Volumes at once</Label>
+          <Input
+            type="number"
+            min={1}
+            max={8}
+            value={volumeConcurrency}
+            onChange={(e) => setVolumeConcurrency(Math.max(1, Math.min(8, Number(e.target.value) || 1)))}
+          />
+          <p className="text-xs text-muted-foreground">
+            Volumes processed in parallel. Never two of the same series: each volume builds on the
+            ones before it.
+          </p>
+        </div>
+        <div className="grid gap-3 sm:grid-cols-2">
+          <div className="space-y-1.5">
+            <Label>Price per million input tokens (USD)</Label>
+            <Input inputMode="decimal" value={priceIn} onChange={(e) => setPriceIn(e.target.value)} placeholder="unknown" />
+          </div>
+          <div className="space-y-1.5">
+            <Label>Price per million output tokens (USD)</Label>
+            <Input inputMode="decimal" value={priceOut} onChange={(e) => setPriceOut(e.target.value)} placeholder="unknown" />
+          </div>
+          <p className="text-xs text-muted-foreground sm:col-span-2">
+            Optional. Token use is always counted per volume; with both prices set, each volume also
+            shows an estimated cost.
           </p>
         </div>
         <div className="space-y-1.5">

@@ -5,7 +5,7 @@ the ORM is the persistence layer, these describe the wire format.
 """
 from __future__ import annotations
 
-from pydantic import BaseModel, ConfigDict
+from pydantic import BaseModel, ConfigDict, model_validator
 
 from db.models import EngineMode
 
@@ -97,6 +97,20 @@ class JobOut(BaseModel):
     total: int
     message: str
     error: str
+    llm_calls: int = 0
+    prompt_tokens: int = 0
+    completion_tokens: int = 0
+    llm_seconds: float = 0.0
+    wall_seconds: float = 0.0
+    # From the prices in Settings; None when they are not set.
+    cost_usd: float | None = None
+
+    @model_validator(mode="after")
+    def _cost(self):
+        from services.provider import estimate_cost
+        if self.cost_usd is None and (self.prompt_tokens or self.completion_tokens):
+            self.cost_usd = estimate_cost(self.prompt_tokens, self.completion_tokens)
+        return self
 
 
 class VolumeSummary(BaseModel):

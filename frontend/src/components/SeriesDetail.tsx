@@ -13,7 +13,7 @@ import {
   Trash2,
 } from "lucide-react";
 import { toast } from "sonner";
-import type { VolumeSummary } from "@/types";
+import type { Job, VolumeSummary } from "@/types";
 import { deleteSeries, deleteVolume, getSeriesMemory, processSeries, reprocessVolume, resumeVolume,
          type SeriesMemory } from "@/lib/api";
 import { useSeries } from "@/hooks/useSeries";
@@ -478,6 +478,9 @@ function VolumeRow({ volume, onChanged }: { volume: VolumeSummary; onChanged: ()
           <ProcessingPanel volume={volume} onDone={onChanged} />
         </div>
       )}
+      {!busy && volume.job && volume.job.llm_calls > 0 && (
+        <div className="px-4 pb-3 text-xs tabular-nums text-muted-foreground">{usageLine(volume.job)}</div>
+      )}
       {volume.status === "paused" && volume.job && (
         <div className="px-4 pb-4 text-xs text-muted-foreground">
           Stopped at {volume.job.step || "start"} ({volume.job.current}/{volume.job.total}). Resume to continue, or delete to start over.
@@ -512,6 +515,19 @@ function VolumeRow({ volume, onChanged }: { volume: VolumeSummary; onChanged: ()
 
 
 /** Name the catalogue a series came from instead of assuming one provider. */
+/** "312 model calls · 1.4M tokens · about $0.82 · 18 min", from the job's counters. */
+function usageLine(job: Job): string {
+  const tokens = job.prompt_tokens + job.completion_tokens;
+  const fmt = (n: number) =>
+    n >= 1e6 ? `${(n / 1e6).toFixed(1)}M` : n >= 1e3 ? `${Math.round(n / 1e3)}k` : String(n);
+  const mins = Math.max(1, Math.round(job.wall_seconds / 60));
+  const parts = [`${job.llm_calls} model call${job.llm_calls === 1 ? "" : "s"}`];
+  if (tokens) parts.push(`${fmt(tokens)} tokens`);
+  if (job.cost_usd != null) parts.push(`about $${job.cost_usd.toFixed(2)}`);
+  parts.push(`${mins} min`);
+  return parts.join(" · ");
+}
+
 function sourceLabel(url: string): string {
   try {
     const host = new URL(url).hostname.replace(/^www\./, "");

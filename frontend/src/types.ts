@@ -38,6 +38,13 @@ export interface Job {
   total: number;
   message: string;
   error: string;
+  llm_calls: number;
+  prompt_tokens: number;
+  completion_tokens: number;
+  llm_seconds: number;
+  wall_seconds: number;
+  /** Estimated from the prices in Settings; null when they are not set. */
+  cost_usd: number | null;
 }
 
 export interface VolumeSummary {

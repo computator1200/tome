@@ -1,5 +1,7 @@
 """Visual PDF export: each page is the original scan, and text/mixed pages get
-the translation laid over a dimmed copy of the scan (matching the reader). Uses
+the translation laid over it (matching the reader). When every translated
+region has a bounding box, each translation is placed where its source text
+sits; otherwise the page is dimmed and the translation set as one column. Uses
 fpdf2's built-in Times font so the translation is real, selectable PDF text and
 no font file needs bundling. Latin target languages (incl. accented French /
 German / Spanish) render fine; non-Latin targets would need a Unicode TTF.
@@ -58,9 +60,54 @@ def _render_text_page(pdf, lines: list[str], theme: str = "dark") -> None:
         pdf.ln(line_h * 0.5)
 
 
-def build_pdf(pages: list[dict], overlay_dim: float = 0.85, theme: str = "dark") -> bytes:
-    """pages: ordered list of {image_key, is_text, lines: [str]}.
-    `theme` ('dark'|'light') sets the scrim + text colors to match the site."""
+def _fit(pdf, text: str, w: float, h: float, start: float) -> tuple[float, float]:
+    """The largest font size, and its line height, at which `text` fits w x h."""
+    size = start
+    while size > 5:
+        line_h = size * 1.2
+        pdf.set_font("Times", size=size)
+        lines = pdf.multi_cell(w, line_h, text, dry_run=True, output="LINES")
+        if len(lines) * line_h <= h:
+            return size, line_h
+        size -= 0.5
+    return 5.0, 6.0
+
+
+def _render_boxes(pdf, boxes: list[dict], w: int, h: int, scrim, text_color) -> None:
+    """Cover each source block and set its translation inside the same box.
+
+    Vertical Japanese text makes tall, narrow boxes that English cannot fill at a
+    readable size, so a box too narrow for its text is widened about its centre
+    (up to three times, within the page) before the font is shrunk.
+    """
+    pad = max(2.0, w * 0.004)
+    for b in boxes:
+        text = _sanitize(b["text"].strip())
+        if not text:
+            continue
+        bx, by = b["x"] / 100 * w, b["y"] / 100 * h
+        bw, bh = b["width"] / 100 * w, b["height"] / 100 * h
+        floor = max(9.0, w / 90)
+        size, line_h = _fit(pdf, text, bw - 2 * pad, bh - 2 * pad, min(28.0, bh / 2))
+        if size < floor and bw < bh:
+            cx = bx + bw / 2
+            bw = min(bw * 3, w)
+            bx = min(max(cx - bw / 2, 0), w - bw)
+            size, line_h = _fit(pdf, text, bw - 2 * pad, bh - 2 * pad, min(28.0, bh / 2))
+        pdf.set_fill_color(*scrim)
+        pdf.rect(bx, by, bw, bh, style="F")
+        pdf.set_text_color(*text_color)
+        pdf.set_font("Times", size=size)
+        pdf.set_xy(bx + pad, by + pad)
+        pdf.multi_cell(bw - 2 * pad, line_h, text)
+
+
+def build_pdf(pages: list[dict], overlay_dim: float = 0.85, theme: str = "dark",
+              path: str | None = None) -> bytes | None:
+    """pages: ordered list of {image_key, is_text, lines: [str], boxes: [box]},
+    where a box is {x, y, width, height, text} in page percentages.
+    `theme` ('dark'|'light') sets the scrim + text colors to match the site.
+    With `path`, the PDF is written there and nothing is returned."""
     if theme == "light":
         scrim, text_color = (245, 245, 245), (24, 24, 24)
     else:
@@ -90,6 +137,10 @@ def build_pdf(pages: list[dict], overlay_dim: float = 0.85, theme: str = "dark")
         if not page.get("is_text") or not lines:
             continue
 
+        if page.get("boxes"):
+            _render_boxes(pdf, page["boxes"], w, h, scrim, text_color)
+            continue
+
         # Dim the scan, then lay the translation on top as readable text.
         with pdf.local_context(fill_opacity=overlay_dim):
             pdf.set_fill_color(*scrim)
@@ -109,5 +160,7 @@ def build_pdf(pages: list[dict], overlay_dim: float = 0.85, theme: str = "dark")
             pdf.multi_cell(w - 2 * margin, line_h, text)
             pdf.ln(line_h * 0.45)
 
-    out = pdf.output()
-    return bytes(out)
+    if path:
+        pdf.output(path)
+        return None
+    return bytes(pdf.output())

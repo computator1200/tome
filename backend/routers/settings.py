@@ -15,6 +15,9 @@ class ProviderOut(BaseModel):
     timeout: float
     concurrency: int
     ocr_backend: str
+    price_in: float | None = None
+    price_out: float | None = None
+    volume_concurrency: int = 1
     api_key_set: bool
     api_key_hint: str
 
@@ -26,6 +29,9 @@ class ProviderIn(BaseModel):
     timeout: float | None = None
     concurrency: int | None = None
     ocr_backend: str | None = None
+    price_in: float | None = None
+    price_out: float | None = None
+    volume_concurrency: int | None = None
     # Omit or leave blank to keep the existing key.
     api_key: str | None = None
 

@@ -252,6 +252,10 @@ export default function Reader() {
                   onCheckedChange={(v) => update({ themeMode: v ? "dark" : "light" })}
                 />
               </div>
+              <div className="flex items-center justify-between gap-2">
+                <Label className="text-sm">Place text on the page</Label>
+                <Switch checked={settings.placeText} onCheckedChange={(v) => update({ placeText: v })} />
+              </div>
               <div className="space-y-1.5">
                 <div className="flex justify-between"><Label className="text-sm">Overlay dimming</Label>
                   <span className="text-xs tabular-nums text-muted-foreground">{Math.round(settings.overlayDim * 100)}%</span></div>
@@ -277,6 +281,7 @@ export default function Reader() {
               showTranslation={showTranslation}
               overlayDim={settings.overlayDim}
               textSize={settings.textSize}
+              placeText={settings.placeText}
             />
           )}
         </div>

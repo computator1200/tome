@@ -191,6 +191,12 @@ class Job(Base):
     total: Mapped[int] = mapped_column(Integer, default=0)
     message: Mapped[str] = mapped_column(Text, default="")
     error: Mapped[str] = mapped_column(Text, default="")
+    # What processing this volume has cost so far, across runs and resumes.
+    llm_calls: Mapped[int] = mapped_column(Integer, default=0, server_default="0")
+    prompt_tokens: Mapped[int] = mapped_column(Integer, default=0, server_default="0")
+    completion_tokens: Mapped[int] = mapped_column(Integer, default=0, server_default="0")
+    llm_seconds: Mapped[float] = mapped_column(Float, default=0.0, server_default="0")
+    wall_seconds: Mapped[float] = mapped_column(Float, default=0.0, server_default="0")
     started_at: Mapped[datetime] = mapped_column(default=_now)
     updated_at: Mapped[datetime] = mapped_column(default=_now, onupdate=_now)
 
