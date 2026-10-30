@@ -21,6 +21,7 @@ from db.models import (
     VolumeStatus,
 )
 from models.api import CreateVolumeOut, PageOut, RegionOut, VolumeDetail
+from services import quality
 from services.worker import enqueue
 from storage_backend import get_store
 
@@ -159,3 +160,13 @@ async def delete_volume(volume_id: str, session: AsyncSession = Depends(get_sess
     await session.delete(volume)
     await session.commit()
     return {"deleted": volume_id}
+
+
+@router.get("/volumes/{volume_id}/quality")
+async def volume_quality(volume_id: str, session: AsyncSession = Depends(get_session)):
+    """How consistently this volume used the series glossary, which terms drifted
+    and on which pages, and which terms it introduced. No model call."""
+    try:
+        return await quality.glossary_report(session, volume_id)
+    except LookupError as e:
+        raise HTTPException(status_code=404, detail="Volume not found") from e

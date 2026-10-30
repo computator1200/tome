@@ -66,7 +66,7 @@ def _fit(pdf, text: str, w: float, h: float, start: float) -> tuple[float, float
     while size > 5:
         line_h = size * 1.2
         pdf.set_font("Times", size=size)
-        lines = pdf.multi_cell(w, line_h, text, dry_run=True, output="LINES")
+        lines = pdf.multi_cell(w, line_h, text, align="L", dry_run=True, output="LINES")
         if len(lines) * line_h <= h:
             return size, line_h
         size -= 0.5
@@ -99,7 +99,7 @@ def _render_boxes(pdf, boxes: list[dict], w: int, h: int, scrim, text_color) -> 
         pdf.set_text_color(*text_color)
         pdf.set_font("Times", size=size)
         pdf.set_xy(bx + pad, by + pad)
-        pdf.multi_cell(bw - 2 * pad, line_h, text)
+        pdf.multi_cell(bw - 2 * pad, line_h, text, align="L")
 
 
 def build_pdf(pages: list[dict], overlay_dim: float = 0.85, theme: str = "dark",

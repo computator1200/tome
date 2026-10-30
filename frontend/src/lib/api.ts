@@ -322,9 +322,55 @@ export function createProgressStream(
 export type SeriesMemory = {
   stats: { entities: number; edges: number; aliases: number };
   scoped_to_volume: number;
-  entities: { name: string; kind: string; volume: number }[];
-  edges: { src: string; relation: string; dst: string; volume: number }[];
+  entities: {
+    id: string; name: string; kind: string; volume: number;
+    aliases: string[]; rendering: string;
+  }[];
+  edges: { id: string; src: string; relation: string; dst: string; volume: number }[];
 };
+
+/** How consistently a volume used the series glossary (GET /volumes/{id}/quality). */
+export type VolumeQuality = {
+  volume: number;
+  uses: number;
+  misses: number;
+  consistency: number | null;
+  drift: { jp: string; en: string; kind: string; uses: number; misses: number; pages: number[] }[];
+  new_terms: { jp: string; en: string; kind: string }[];
+  new_term_count: number;
+};
+
+export async function getVolumeQuality(volumeId: string): Promise<VolumeQuality> {
+  const { data } = await api.get<VolumeQuality>(`/volumes/${volumeId}/quality`);
+  return data;
+}
+
+/** One entity with every name it has, for correcting the graph. */
+export type MemoryEntity = {
+  id: string; name: string; kind: string; rendering: string; volume: number;
+  aliases: { id: string; alias: string; volume: number; page: number }[];
+};
+
+export async function getMemoryEntities(seriesId: string): Promise<MemoryEntity[]> {
+  const { data } = await api.get<MemoryEntity[]>(`/series/${seriesId}/memory/entities`);
+  return data;
+}
+
+export async function mergeMemoryEntities(seriesId: string, keepId: string, dropId: string) {
+  await api.post(`/series/${seriesId}/memory/merge`, { keep_id: keepId, drop_id: dropId });
+}
+
+export async function splitMemoryAlias(seriesId: string, aliasId: string) {
+  await api.post(`/series/${seriesId}/memory/aliases/${aliasId}/split`);
+}
+
+export async function deleteMemoryEntity(seriesId: string, entityId: string) {
+  await api.delete(`/series/${seriesId}/memory/entities/${entityId}`);
+}
+
+export async function deleteMemoryEdge(seriesId: string, edgeId: string) {
+  await api.delete(`/series/${seriesId}/memory/edges/${edgeId}`);
+}
 
 /** The series graph, optionally scoped to what a reader at `volume` may know. */
 export async function getSeriesMemory(id: string, volume?: number): Promise<SeriesMemory> {

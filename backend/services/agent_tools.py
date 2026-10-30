@@ -2,8 +2,11 @@
 
 One central registry, but each session kind only *sees* its own toolset
 (Hermes-style registration vs exposure): the ingest agent gets curation tools,
-the chat agent gets read-only lookup tools. No tool can delete anything — the
-sharpest edge is update_series, which the UI can always re-edit.
+the chat agent gets lookup tools (the text, the glossary, the series memory)
+plus the repairs and metadata edits a user asks for in chat. The one
+irreversible tool, delete_volume, refuses to run unless the user has said yes
+through ask_user. enqueue_processing is registered but in neither toolset:
+translation costs money, so only the user starts it.
 
 Handlers are async, open their own short-lived DB sessions (SQLite is WAL'd),
 and return strings (usually JSON) that go back to the model verbatim. ask_user
@@ -21,6 +24,7 @@ from sqlalchemy import func, select, text
 
 from db.database import SessionLocal
 from db.models import (
+    AgentMessage,
     AgentSession,
     GlossaryTerm,
     Job,
@@ -32,7 +36,7 @@ from db.models import (
     VolumeStatus,
 )
 from logging_config import get_logger
-from services import documents, ingest, llm, maintenance, metadata, web_search, webnovel
+from services import documents, ingest, llm, maintenance, memory, metadata, web_search, webnovel
 from storage_backend import get_store
 
 
@@ -469,14 +473,55 @@ async def _reorder_volumes(ctx: ToolContext, args: dict) -> str:
     return _dump(out)
 
 
+# A reply that agrees. The option buttons the UI shows are usually "Yes, ..."
+_YES = re.compile(r"^\s*(yes|y|yeah|yep|ok|okay|sure|confirm(ed)?|go ahead|do it|delete)\b"
+                  r"|^\s*(はい|ええ|うん|お願いします)", re.IGNORECASE)
+
+
+async def _user_confirmed(session_id: str, label: str, volume_id: str) -> bool:
+    """Did the user's latest message answer yes to an ask_user naming this volume?
+
+    Walks the transcript back from the newest message: the first user message is
+    the latest reply, and the ask_user call before it is the question it answers.
+    """
+    async with SessionLocal() as session:
+        rows = (await session.execute(
+            select(AgentMessage).where(AgentMessage.session_id == session_id)
+            .order_by(AgentMessage.seq.desc()).limit(40))).scalars().all()
+    reply = None
+    for m in rows:
+        if m.role == "user" and reply is None:
+            reply = m.content or ""
+            continue
+        if reply is None or m.role != "assistant":
+            continue
+        for call in m.tool_calls or []:
+            fn = call.get("function") or {}
+            if fn.get("name") != "ask_user":
+                continue
+            try:
+                question = str(json.loads(fn.get("arguments") or "{}").get("question", ""))
+            except (ValueError, AttributeError):
+                question = ""
+            names_it = (label and label.lower() in question.lower()) or volume_id in question
+            return bool(names_it and _YES.match(reply))
+        if m.tool_calls:
+            return False
+    return False
+
+
 async def _delete_volume(ctx: ToolContext, args: dict) -> str:
-    """Remove one volume. Destructive: the prompt requires ask_user first."""
+    """Remove one volume. Irreversible, so it runs only after the user has said
+    yes to an ask_user question that named this volume."""
     async with SessionLocal() as session:
         volume = (await session.execute(
             select(Volume).where(Volume.id == args["volume_id"]))).scalar_one_or_none()
         if volume is None or volume.series_id != ctx.series_id:
             return "Error: no volume with that id in this series."
         label, vid = volume.label, volume.id
+        if not await _user_confirmed(ctx.session_id, label, vid):
+            return (f"Refused: deleting '{label}' cannot be undone. Call ask_user with a "
+                    f"question that names '{label}', and delete only after the user says yes.")
         try:
             await asyncio.to_thread(get_store().delete_prefix, f"volumes/{vid}")
         except Exception:  # noqa: BLE001 — storage cleanup is best effort
@@ -553,6 +598,24 @@ async def _ask_user(ctx: ToolContext, args: dict) -> str:
 
 
 # --- chat tools ----------------------------------------------------------------
+
+async def _get_memory(ctx: ToolContext, args: dict) -> str:
+    """The series graph as of the latest volume, optionally around one name."""
+    name = (args.get("name") or "").strip()
+    async with SessionLocal() as session:
+        latest = (await session.execute(select(func.max(Volume.order)).where(
+            Volume.series_id == ctx.series_id))).scalar() or 1
+        view = await memory.build_context(session, ctx.series_id, latest,
+                                          texts=[name] if name else None,
+                                          max_entities=10 if name else 40, max_edges=40)
+    if name:
+        named = [e for e in view["entities"]
+                 if name in (e["name"], *e["aliases"]) or (e["rendering"] or "").lower() == name.lower()]
+        keep = {e["name"] for e in named}
+        view["entities"] = named or view["entities"]
+        view["edges"] = [e for e in view["edges"] if keep & {e["src"], e["dst"]}] or view["edges"]
+    return _dump({"volume": view["volume"], "entities": view["entities"], "edges": view["edges"]})
+
 
 async def _get_series_info(ctx: ToolContext, args: dict) -> str:
     async with SessionLocal() as session:
@@ -801,6 +864,12 @@ TOOLS: dict[str, Tool] = {t.name: t for t in [
     Tool("get_glossary",
          "Get the series glossary (character names and term renderings).",
          _obj({}), _get_glossary),
+    Tool("get_memory",
+         "What the series memory knows: characters, places and organisations, the "
+         "other names each goes by, how the translation renders them, and the "
+         "relations between them with the volume that established each. Pass a name "
+         "(source or translated) to focus on one entity and its relations.",
+         _obj({"name": _S}), _get_memory),
     Tool("search_text",
          "Full-text search the series' translated (and source) text. Returns matching "
          "snippets with volume + page locations.",
@@ -819,7 +888,7 @@ TOOLSETS: dict[str, list[str]] = {
                "create_volumes_from_documents", "create_volume_from_webnovel",
                "convert_pdf_to_scans", "repair_volume_pages", "reorder_volumes",
                "get_series_info", "ask_user"],
-    "chat": ["get_series_info", "get_summaries", "get_glossary", "search_text",
+    "chat": ["get_series_info", "get_summaries", "get_glossary", "get_memory", "search_text",
              "read_page", "search_series_metadata", "get_series_metadata",
              "link_series_metadata", "web_search", "fetch_page",
              "set_series_poster", "update_series", "repair_volume_pages",

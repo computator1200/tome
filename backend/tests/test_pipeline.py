@@ -6,12 +6,14 @@ the volume ends as, and what a re-run picks up.
 """
 import asyncio
 import sys
+import tempfile
 from pathlib import Path
 
 import pytest
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import async_sessionmaker, create_async_engine
 from sqlalchemy.orm import selectinload
+from sqlalchemy.pool import NullPool
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 
@@ -31,7 +33,11 @@ def _harness(monkeypatch, *, engine_mode="vision", ocr_backend="vision", pages=3
              kind=VolumeKind.SCANS.value, texts=None):
     """A series with one volume of `pages` pages, wired to fakes. Returns
     (run, load): run() processes the volume, load() reads it back."""
-    engine = create_async_engine("sqlite+aiosqlite:///:memory:")
+    # A file, not :memory:, with no pooling: the pipeline opens several sessions
+    # at once, as it does in production, and each run is its own event loop.
+    path = Path(tempfile.mkdtemp()) / "tome.db"
+    engine = create_async_engine(f"sqlite+aiosqlite:///{path.as_posix()}", poolclass=NullPool,
+                                 connect_args={"timeout": 30})
     Session = async_sessionmaker(engine, expire_on_commit=False)
     monkeypatch.setattr(pipeline, "SessionLocal", Session)
     monkeypatch.setattr(pipeline, "get_store", lambda: _Store())
@@ -236,3 +242,44 @@ def test_cost_estimate_needs_both_prices(monkeypatch):
     assert provider.estimate_cost(1_000_000, 1_000_000) is None
     monkeypatch.setattr(provider, "get", lambda: dict(base, price_in=0.5, price_out=2.0))
     assert provider.estimate_cost(1_000_000, 500_000) == 1.5
+
+
+# --- memory through the pipeline ------------------------------------------------
+
+def test_a_page_never_sees_what_a_later_page_established(monkeypatch):
+    seen = {}
+
+    def vision(ctx, glossary, img):
+        index = int(img.decode().rsplit(":p", 1)[1].split(".")[0])
+        seen[index] = ctx.get("memory", "")
+        memory_payload = {}
+        if index == 2:
+            memory_payload = {"entities": [{"name": "Lizette", "kind": "person"},
+                                           {"name": "Ashen Court", "kind": "org"}],
+                              "relations": [{"src": "Lizette", "relation": "betrays",
+                                             "dst": "Ashen Court"}]}
+        return {"regions": [{"id": "col_0", "order": 0, "japanese_text": "x",
+                             "english_text": "y"}],
+                "new_terms": {"characters": {"Lizette": "Lizette"}} if index == 2 else {},
+                "memory": memory_payload}
+    monkeypatch.setattr(llm, "vision_ocr_translate", vision)
+    run, load = _harness(monkeypatch)
+    run()
+    seen.clear()
+    run()  # a full re-run: the graph now holds page 2's facts
+    assert "Lizette" not in seen[0] and "Lizette" not in seen[1]
+    assert "betrays" in seen[2]
+
+
+def test_a_malformed_memory_payload_does_not_hurt_the_volume(monkeypatch):
+    def vision(ctx, glossary, img):
+        out = _vision_ok(ctx, glossary, img)
+        out["memory"] = {"entities": [{"name": "Lizette", "kind": "person"},
+                                      {"name": ["bad"]}],
+                         "relations": [{"src": "Lizette", "relation": 3, "dst": None}]}
+        return out
+    monkeypatch.setattr(llm, "vision_ocr_translate", vision)
+    run, load = _harness(monkeypatch)
+    run()
+    vol, job = load()
+    assert vol.status == VolumeStatus.DONE.value, job.error

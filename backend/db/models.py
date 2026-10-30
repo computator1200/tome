@@ -267,6 +267,10 @@ class GlossaryTerm(Base):
     kind: Mapped[str] = mapped_column(String, default="term")  # character | term
     jp: Mapped[str] = mapped_column(String, nullable=False)
     en: Mapped[str] = mapped_column(String, default="")
+    # Where the term was first seen (volume order, page index). A prompt only
+    # gets terms seen by its own position; -1 means not dated yet.
+    first_volume: Mapped[int] = mapped_column(Integer, default=-1, server_default="-1")
+    first_page: Mapped[int] = mapped_column(Integer, default=-1, server_default="-1")
 
     series: Mapped[Series] = relationship(back_populates="glossary")
 
@@ -288,6 +292,9 @@ class MemoryEntity(Base):
     # The volume that first introduces this entity. Nothing established later may
     # be shown to a reader who has not reached it.
     first_volume: Mapped[int] = mapped_column(Integer, default=1)
+    first_page: Mapped[int] = mapped_column(Integer, default=-1, server_default="-1")
+    # How the translation renders the name, once it has settled on one.
+    rendering: Mapped[str] = mapped_column(String, default="", server_default="")
     created_at: Mapped[datetime] = mapped_column(default=_now)
 
     aliases: Mapped[list["MemoryAlias"]] = relationship(
@@ -305,6 +312,8 @@ class MemoryAlias(Base):
     # Normalised form (NFKC, casefolded, honorifics stripped) - the matching key.
     norm: Mapped[str] = mapped_column(String, index=True, nullable=False)
     volume: Mapped[int] = mapped_column(Integer, default=1)
+    # Page index within `volume` where this form was first seen; -1 = not dated yet.
+    page: Mapped[int] = mapped_column(Integer, default=-1, server_default="-1")
     script: Mapped[str] = mapped_column(String, default="")  # ja|ko|zh|latn|cyrl|arab|other
 
     entity: Mapped[MemoryEntity] = relationship(back_populates="aliases")
@@ -321,6 +330,8 @@ class MemoryEdge(Base):
     dst_id: Mapped[str] = mapped_column(ForeignKey("memory_entities.id", ondelete="CASCADE"))
     relation: Mapped[str] = mapped_column(String, nullable=False)  # serves|born_in|member_of|...
     established_volume: Mapped[int] = mapped_column(Integer, default=1)
+    # Page index within that volume; -1 = not dated yet.
+    established_page: Mapped[int] = mapped_column(Integer, default=-1, server_default="-1")
     page_id: Mapped[str | None] = mapped_column(String(12), nullable=True)
     created_at: Mapped[datetime] = mapped_column(default=_now)
 

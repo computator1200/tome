@@ -40,7 +40,7 @@ async def _fresh():
     ("リゼットさん", "リゼット"),
     ("Lizette", "lizette"),
     ("ＬＩＺＥＴＴＥ", "lizette"),
-    (" 館脇 正太郎 ", "館脇 正太郎"),
+    (" 館脇 正太郎 ", "館脇正太郎"),       # a space inside a CJK name is not part of it
     ("館脇君", "館脇"),
 ])
 def test_norm_strips_honorifics_and_width(raw, expected):
@@ -142,4 +142,5 @@ def test_render_context_is_short_and_labelled():
 def test_relation_names_are_normalised():
     assert memory.clean_relation("Born In") == "born_in"
     assert memory.clean_relation("serves  ") == "serves"
-    assert memory.clean_relation("") == "related_to"
+    assert memory.clean_relation("") is None, "an empty verb is dropped, not stored"
+    assert memory.clean_relation("is vaguely connected to") is None

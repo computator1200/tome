@@ -61,6 +61,20 @@ _ADDED_COLUMNS: dict[str, list[tuple[str, str]]] = {
         # chapter heading for text volumes (a text "page" is one chapter)
         ("chapter_title", "TEXT DEFAULT ''"),
     ],
+    "glossary_terms": [
+        ("first_volume", "INTEGER DEFAULT -1"),
+        ("first_page", "INTEGER DEFAULT -1"),
+    ],
+    "memory_entities": [
+        ("first_page", "INTEGER DEFAULT -1"),
+        ("rendering", "VARCHAR DEFAULT ''"),
+    ],
+    "memory_aliases": [
+        ("page", "INTEGER DEFAULT -1"),
+    ],
+    "memory_edges": [
+        ("established_page", "INTEGER DEFAULT -1"),
+    ],
     "jobs": [
         ("llm_calls", "INTEGER DEFAULT 0"),
         ("prompt_tokens", "INTEGER DEFAULT 0"),

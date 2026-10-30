@@ -290,6 +290,18 @@ Return ONLY a JSON object (no markdown, no prose):
     return _chat(model or provider.get()["vision_model"], content)
 
 
+# The memory instructions shared by both translate prompts. The verb list must
+# match services/memory.RELATIONS: a verb the model is not offered is never
+# used, and one outside it is dropped.
+_MEMORY_RULES = (
+    "An alias is any other way this text refers to the same entity: a short name,\n"
+    "a nickname, or a title or description used for it (for example the title a\n"
+    "character is known by). List one only when the text makes clear it is the same\n"
+    "entity. Use only these relations: serves, works_for, member_of, sibling_of,\n"
+    "parent_of, child_of, married_to, lives_in, born_in, located_in, owns, knows,\n"
+    "leads, attends, teaches, friend_of, rival_of, kills, betrays.")
+
+
 def translate_text(series_ctx: dict, glossary: list[dict], pages_payload: list[dict],
                    model: str | None = None) -> dict:
     """Translate a batch of pages of already-OCR'd source text.
@@ -328,15 +340,13 @@ Return ONLY a JSON object with this EXACT structure (no markdown, no prose):
   }},
   "memory": {{
     "entities": [{{"name": "<name, as written here>", "kind": "person|place|org|term",
-                   "aliases": ["<other forms of it on this page>"]}}],
+                   "aliases": ["<other names, nicknames, titles or descriptions this text uses for it>"]}}],
     "relations": [{{"src": "<entity>", "relation": "<verb>", "dst": "<entity>"}}]
   }}
 }}
 Only include entities that appear in this text, and relations only where the
 text states them. The memory block builds the series graph; do not invent.
-Allowed relations: serves, works_for, member_of, sibling_of, parent_of,
-child_of, married_to, lives_in, born_in, located_in, owns, knows, leads,
-attends, teaches, friend_of, rival_of."""
+{_MEMORY_RULES}"""
 
     data = _chat(model or provider.get()["model"], prompt)
     results = []
@@ -496,16 +506,14 @@ top-to-bottom, right-to-left) and translate each block to fluent {tgt}.
   }},
   "memory": {{
     "entities": [{{"name": "<name, as written here>", "kind": "person|place|org|term",
-                   "aliases": ["<other forms of it on this page>"]}}],
+                   "aliases": ["<other names, nicknames, titles or descriptions this text uses for it>"]}}],
     "relations": [{{"src": "<entity>", "relation": "<verb>", "dst": "<entity>"}}]
   }}
 }}
 List regions in reading order. {_BOX_PROMPT}
 Only include entities that appear on this page,
 and relations only where the page states them.
-Allowed relations: serves, works_for, member_of, sibling_of, parent_of,
-child_of, married_to, lives_in, born_in, located_in, owns, knows, leads,
-attends, teaches, friend_of, rival_of."""
+{_MEMORY_RULES}"""
 
     content = [
         {"type": "text", "text": prompt},

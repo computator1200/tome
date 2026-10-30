@@ -1,4 +1,4 @@
-import { useEffect, useState } from "react";
+import { useCallback, useEffect, useState } from "react";
 import { Link, useNavigate, useParams } from "react-router-dom";
 import {
   ArrowLeft,
@@ -27,8 +27,9 @@ import {
   CollapsibleContent,
   CollapsibleTrigger,
 } from "@/components/ui/collapsible";
-import { AlertTriangle, ChevronDown, FileText, MessageCircle, MessageCirclePlus, Sparkles } from "lucide-react";
+import { AlertTriangle, ChevronDown, FileText, ListChecks, MessageCircle, MessageCirclePlus, Sparkles } from "lucide-react";
 import type { AgentSession } from "@/types";
+import { getVolumeQuality, type VolumeQuality } from "@/lib/api";
 import { getSeriesChat, listSeriesAgentSessions, newChatSession } from "@/lib/api";
 import {
   Sheet,
@@ -47,6 +48,7 @@ import {
 import { cn } from "@/lib/utils";
 import StatusBadge from "./StatusBadge";
 import ProcessingPanel from "./ProcessingPanel";
+import MemoryPanel from "./MemoryPanel";
 import EditSeriesDialog from "./EditSeriesDialog";
 import AddVolumeDialog from "./AddVolumeDialog";
 import AddFilesDialog from "./AddFilesDialog";
@@ -65,13 +67,13 @@ export default function SeriesDetail() {
   const [sessions, setSessions] = useState<AgentSession[]>([]);
 
   const [memory, setMemory] = useState<SeriesMemory | null>(null);
-  const [memoryOpen, setMemoryOpen] = useState(false);
-  useEffect(() => {
+  const reloadMemory = useCallback(() => {
     if (!id) return;
     void getSeriesMemory(id)
       .then(setMemory)
       .catch(() => setMemory(null));
   }, [id]);
+  useEffect(reloadMemory, [reloadMemory]);
 
   async function toggleChat(open: boolean) {
     setChatOpen(open);
@@ -252,47 +254,8 @@ export default function SeriesDetail() {
         </div>
       )}
 
-        {memory && memory.stats.entities > 0 && (
-          <div className="mt-8 rounded-lg border">
-            <button
-              className="flex w-full items-center justify-between px-4 py-3 text-sm"
-              onClick={() => setMemoryOpen((v) => !v)}
-            >
-              <span className="font-medium">
-                Series memory
-                <span className="ml-2 font-normal text-muted-foreground">
-                  {memory.stats.entities} things · {memory.stats.edges} relations
-                </span>
-              </span>
-              <ChevronDown className={cn("size-4 transition-transform", memoryOpen && "rotate-180")} />
-            </button>
-            {memoryOpen && (
-              <div className="space-y-4 border-t px-4 py-3 text-sm">
-                <p className="text-muted-foreground">
-                  Built while translating. A relation is only used in a volume at or
-                  after the one that establishes it, so later books cannot spoil
-                  earlier ones.
-                </p>
-                <div>
-                  <p className="mb-1 font-medium">Relations</p>
-                  <ul className="space-y-0.5 text-muted-foreground">
-                    {memory.edges.slice(0, 12).map((e, i) => (
-                      <li key={i}>
-                        {e.src} {e.relation.replace(/_/g, " ")} {e.dst}
-                        <span className="ml-2 opacity-60">vol {e.volume}</span>
-                      </li>
-                    ))}
-                  </ul>
-                </div>
-                <div>
-                  <p className="mb-1 font-medium">Known by this point</p>
-                  <p className="text-muted-foreground">
-                    {memory.entities.slice(0, 40).map((e) => e.name).join(", ")}
-                  </p>
-                </div>
-              </div>
-            )}
-          </div>
+        {memory && memory.stats.entities > 0 && id && (
+          <MemoryPanel seriesId={id} memory={memory} onChanged={reloadMemory} />
         )}
 
       {/* Per-series librarian chat: a floating launcher (bottom-right, like any
@@ -404,6 +367,16 @@ function VolumeRow({ volume, onChanged }: { volume: VolumeSummary; onChanged: ()
   const { settings } = useSettings();
   const themeMode = settings.themeMode;
   const [showSummary, setShowSummary] = useState(false);
+  const [showQuality, setShowQuality] = useState(false);
+  const [quality, setQuality] = useState<VolumeQuality | null>(null);
+  function toggleQuality(open: boolean) {
+    setShowQuality(open);
+    if (open) {
+      void getVolumeQuality(volume.id)
+        .then(setQuality)
+        .catch(() => toast.error("Could not load the consistency report."));
+    }
+  }
 
   const emerald = "bg-emerald-600 text-white hover:bg-emerald-600/90";
   const canRetranslate = ["done", "error", "paused"].includes(volume.status);
@@ -506,6 +479,43 @@ function VolumeRow({ volume, onChanged }: { volume: VolumeSummary; onChanged: ()
             <p className="whitespace-pre-wrap px-4 pb-4 text-sm leading-relaxed text-muted-foreground">
               {volume.summary}
             </p>
+          </CollapsibleContent>
+        </Collapsible>
+      )}
+      {(volume.status === "done" || volume.status === "error") && (
+        <Collapsible open={showQuality} onOpenChange={toggleQuality} className="border-t">
+          <CollapsibleTrigger className="flex w-full items-center gap-1.5 px-4 py-2 text-sm text-muted-foreground hover:text-foreground">
+            <ListChecks className="size-3.5" />
+            Consistency
+            {quality?.consistency != null && (
+              <span className="tabular-nums">· {Math.round(quality.consistency * 100)}%</span>
+            )}
+            <ChevronDown className={cn("ml-auto size-4 transition-transform", showQuality && "rotate-180")} />
+          </CollapsibleTrigger>
+          <CollapsibleContent>
+            <div className="space-y-2 px-4 pb-4 text-sm text-muted-foreground">
+              {!quality && <p>Checking...</p>}
+              {quality && (
+                <>
+                  <p>
+                    {quality.uses === 0
+                      ? "No glossary term appears in this volume yet."
+                      : `Glossary terms appeared ${quality.uses} times; ${quality.misses} translated differently from the glossary.`}
+                    {quality.new_term_count > 0 && ` ${quality.new_term_count} new terms first appear here.`}
+                  </p>
+                  {quality.drift.length > 0 && (
+                    <ul className="space-y-0.5">
+                      {quality.drift.map((d) => (
+                        <li key={d.jp}>
+                          <span className="text-foreground">{d.jp}</span> should be "{d.en}": differs on
+                          {" "}{d.misses} of {d.uses} pages (p. {d.pages.join(", ")})
+                        </li>
+                      ))}
+                    </ul>
+                  )}
+                </>
+              )}
+            </div>
           </CollapsibleContent>
         </Collapsible>
       )}

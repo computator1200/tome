@@ -16,6 +16,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from db.models import Page, PageType, Region, Volume
 from logging_config import get_logger
+from services import memory
 from services.documents import _chapterize
 
 log = get_logger(__name__)
@@ -142,10 +143,15 @@ async def reorder_volumes(session: AsyncSession, series_id: str,
     ordered.extend(v for v in volumes if v not in ordered)
 
     changes = []
+    moved: dict[int, int] = {}
     for position, v in enumerate(ordered, start=1):
         if v.order != position:
             changes.append({"label": v.label, "from": v.order, "to": position})
+            moved[v.order] = position
         v.order = position
+    # Memory and glossary rows carry the order a volume had when they were
+    # written; move them with it, or a reordered volume spoils the others.
+    await memory.renumber_volumes(session, series_id, moved)
     await session.commit()
     log.info(f"repair: reordered {len(changes)} volumes in series {series_id}")
     return {"series_id": series_id, "order": [v.label for v in ordered],

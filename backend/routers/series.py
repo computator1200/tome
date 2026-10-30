@@ -2,6 +2,7 @@ import asyncio
 from pathlib import PurePosixPath
 
 from fastapi import APIRouter, Depends, HTTPException, UploadFile
+from pydantic import BaseModel
 from sqlalchemy import func, select
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import selectinload
@@ -229,11 +230,14 @@ async def series_memory(series_id: str, volume: int | None = None,
         # volume=0 used to fall through a falsy check to "everything", and a
         # negative number was read as volume 1.
         raise HTTPException(status_code=400, detail="volume must be 1 or greater")
+    if await memgraph.ensure_positions(session, series_id):
+        await session.commit()
     ctx = await memgraph.build_context(session, series_id,
-                                       latest if volume is None else volume)
+                                       latest if volume is None else volume,
+                                       max_entities=80, max_edges=60)
     stats = await memgraph.stats(session, series_id)
-    # build_context is capped (80 entities / 60 edges); say so, so a caller can
-    # tell a complete picture from a prefix of it.
+    # The view is capped (80 entities / 60 edges) and scoped; say whether it
+    # left anything out, so a caller can tell a complete picture from part of it.
     return {
         "stats": stats,
         "scoped_to_volume": ctx["volume"],
@@ -244,3 +248,59 @@ async def series_memory(series_id: str, volume: int | None = None,
             "edges": len(ctx["edges"]) < stats["edges"],
         },
     }
+
+
+# --- corrections ---------------------------------------------------------------
+# Extraction is a model's reading of the page, so the graph can be wrong. These
+# let a person fix it: merge two entities that are one, split off a form that was
+# merged by mistake, and delete what should not be there.
+
+class MemoryMergeIn(BaseModel):
+    keep_id: str
+    drop_id: str
+
+
+async def _correct(session, series_id: str, action) -> dict:
+    if (await session.execute(select(Series.id).where(Series.id == series_id))).scalar_one_or_none() is None:
+        raise HTTPException(status_code=404, detail="Series not found")
+    try:
+        result = await action()
+    except LookupError as e:
+        raise HTTPException(status_code=404, detail=str(e)) from e
+    except ValueError as e:
+        raise HTTPException(status_code=400, detail=str(e)) from e
+    return {"ok": True, **({"id": result} if isinstance(result, str) else {})}
+
+
+@router.get("/{series_id}/memory/entities")
+async def memory_entities(series_id: str, session: AsyncSession = Depends(get_session)):
+    """Every entity with all of its names, unscoped: what the correction UI lists."""
+    return await memgraph.entity_details(session, series_id)
+
+
+@router.post("/{series_id}/memory/merge")
+async def memory_merge(series_id: str, body: MemoryMergeIn,
+                       session: AsyncSession = Depends(get_session)):
+    return await _correct(session, series_id, lambda: memgraph.merge_entities(
+        session, series_id, body.keep_id, body.drop_id))
+
+
+@router.post("/{series_id}/memory/aliases/{alias_id}/split")
+async def memory_split(series_id: str, alias_id: str,
+                       session: AsyncSession = Depends(get_session)):
+    return await _correct(session, series_id, lambda: memgraph.split_alias(
+        session, series_id, alias_id))
+
+
+@router.delete("/{series_id}/memory/entities/{entity_id}")
+async def memory_delete_entity(series_id: str, entity_id: str,
+                               session: AsyncSession = Depends(get_session)):
+    return await _correct(session, series_id, lambda: memgraph.delete_entity(
+        session, series_id, entity_id))
+
+
+@router.delete("/{series_id}/memory/edges/{edge_id}")
+async def memory_delete_edge(series_id: str, edge_id: str,
+                             session: AsyncSession = Depends(get_session)):
+    return await _correct(session, series_id, lambda: memgraph.delete_edge(
+        session, series_id, edge_id))

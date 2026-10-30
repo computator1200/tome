@@ -1,3 +1,4 @@
+import mimetypes
 import os
 from contextlib import asynccontextmanager
 from datetime import datetime, timezone
@@ -9,10 +10,15 @@ from fastapi.responses import FileResponse
 from fastapi.staticfiles import StaticFiles
 
 from config import URL_PREFIX
-from db.database import init_db
+
+# Python reads file types from the Windows registry, which often maps .js to
+# text/plain; browsers then refuse to run the bundle and the app is a blank page.
+mimetypes.add_type("text/javascript", ".js")
+mimetypes.add_type("text/css", ".css")
+from db.database import SessionLocal, init_db
 from logging_config import configure_logging, get_logger
 from routers import agent, export, files, novelupdates, process, series, settings, volumes
-from services import provider
+from services import memory, provider
 from services.agent import recover_orphans as recover_agent_orphans
 from services.worker import start_worker
 
@@ -37,6 +43,8 @@ async def lifespan(app: FastAPI):
     logger.info("Tome API starting (prefix=%r)", URL_PREFIX)
     await init_db()           # create tables (idempotent; dev-friendly)
     await provider.load_from_db()  # apply UI-saved provider overrides over .env
+    async with SessionLocal() as s:  # re-key memory aliases if normalisation changed
+        await memory.upgrade_norms(s)
     await start_worker()      # start the background worker + recover orphaned jobs
     await recover_agent_orphans()  # mark agent runs killed by the restart
     yield

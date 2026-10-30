@@ -105,8 +105,18 @@ def _series_ctx(series: Series) -> dict:
     }
 
 
-def _glossary_list(series: Series) -> list[dict]:
-    return [{"jp": t.jp, "en": t.en, "kind": t.kind} for t in series.glossary]
+async def _prompt_parts(series_id: str, series_ctx: dict, volume_order: int, page: int,
+                        texts: list[str] | None) -> tuple[dict, list[dict]]:
+    """The memory block and glossary for one model call, scoped to its position.
+
+    Built per call, not per volume: what earlier pages of this run taught is
+    already in it, nothing from later pages or volumes is, and the names that
+    occur in `texts` come first. Its own session, so concurrent calls can read.
+    """
+    async with SessionLocal() as s:
+        ctx = await memgraph.build_context(s, series_id, volume_order, page, texts)
+        glossary = await memgraph.glossary_for(s, series_id, volume_order, page, texts)
+    return {**series_ctx, "memory": memgraph.render_context(ctx)}, glossary
 
 
 
@@ -128,36 +138,56 @@ async def _maybe_detect_language(session: AsyncSession, series: Series,
 
 async def _merge_new_terms(session: AsyncSession, series: Series, new_terms: dict,
                            volume: Volume | None = None, memory_payload: dict | None = None,
-                           page_id: str | None = None) -> None:
+                           page_id: str | None = None, page: int = memgraph.END) -> None:
     """Remember what this page taught us: new renderings, and the world graph.
 
     The glossary keeps names consistent; the graph keeps *knowledge* consistent,
     and is what lets a later volume read a relation the earlier one did not
-    establish yet. A failure here must never fail the translation, so it is
-    caught and logged rather than raised.
+    establish yet. Both are stamped with this page's position, so neither can
+    reach a prompt for an earlier one. A failure here must never fail the
+    translation: the graph is written in its own session, so a bad payload rolls
+    back only itself.
     """
-    if new_terms:
-        existing = {t.jp for t in series.glossary}
+    series_id = series.id
+    pos = (max(1, volume.order) if volume is not None else memgraph.HIDDEN, page)
+    renderings: dict[str, str] = {}
+    if isinstance(new_terms, dict):
+        existing = {t.jp: t for t in series.glossary}
         for kind, key in (("character", "characters"), ("term", "terms")):
-            for jp, en in (new_terms.get(key) or {}).items():
-                if jp and jp not in existing and en:
-                    term = GlossaryTerm(series_id=series.id, kind=kind, jp=jp, en=en)
+            items = new_terms.get(key)
+            if not isinstance(items, dict):
+                continue
+            for jp, en in items.items():
+                if not (isinstance(jp, str) and isinstance(en, str) and jp and en):
+                    continue
+                renderings[jp] = en
+                term = existing.get(jp)
+                if term is None:
+                    term = GlossaryTerm(series_id=series_id, kind=kind, jp=jp, en=en,
+                                        first_volume=pos[0], first_page=pos[1])
                     session.add(term)
                     series.glossary.append(term)
-                    existing.add(jp)
+                    existing[jp] = term
+                elif term.first_volume == memgraph.UNKNOWN or pos < (term.first_volume,
+                                                                     term.first_page):
+                    term.first_volume, term.first_page = pos
         await session.commit()
 
-    if memory_payload and volume is not None:
+    if volume is None or not (memory_payload or renderings):
+        return
+    volume_id = volume.id
+    async with SessionLocal() as ms:
         try:
             added = await memgraph.record_extraction(
-                session, series.id, volume.order, memory_payload, page_id)
-            await session.commit()
+                ms, series_id, pos[0], memory_payload, page_id, page=pos[1])
+            await memgraph.record_renderings(ms, series_id, renderings)
+            await ms.commit()
             if added["entities"] or added["edges"]:
-                log.info(f"[{volume.id}] memory +{added['entities']} entities "
-                         f"+{added['edges']} edges (vol {volume.order})")
+                log.info(f"[{volume_id}] memory +{added['entities']} entities "
+                         f"+{added['edges']} edges (vol {pos[0]}, page {pos[1]})")
         except Exception as exc:  # noqa: BLE001 - memory is a side effect, not the job
-            await session.rollback()
-            log.warning(f"[{volume.id}] memory extraction skipped: {exc}")
+            await ms.rollback()
+            log.warning(f"[{volume_id}] memory extraction skipped: {exc}")
 
 
 async def _previous_summaries(session: AsyncSession, series_id: str, order: int) -> str:
@@ -212,6 +242,14 @@ async def process_volume(volume_id: str, resume: bool = False) -> None:
     When resume=True, already-finished pages are skipped so a paused or failed
     run continues where it left off instead of redoing expensive work.
     """
+    # Date anything written before positions existed, before the volume is
+    # loaded, so this run reads the dated rows and not stale copies of them.
+    async with SessionLocal() as s:
+        series_id = (await s.execute(
+            select(Volume.series_id).where(Volume.id == volume_id))).scalar_one_or_none()
+        if series_id and await memgraph.ensure_positions(s, series_id):
+            await s.commit()
+
     async with SessionLocal() as session:
         volume = await _load_volume(session, volume_id)
         if volume is None:
@@ -238,13 +276,11 @@ async def process_volume(volume_id: str, resume: bool = False) -> None:
                            step="classifying", current=0, total=len(volume.pages),
                            message="Classifying pages...")
 
-            # Build the series context once, including summaries of earlier volumes.
+            # The series context, with summaries of earlier volumes. The memory
+            # block and glossary are added per call (_prompt_parts), scoped to
+            # the page being translated.
             series_ctx = _series_ctx(series)
             series_ctx["previous_summary"] = await _previous_summaries(session, series.id, volume.order)
-            # Graph memory, scoped to this volume: an edge established in a later
-            # volume is not in this string, so it cannot reach this prompt.
-            series_ctx["memory"] = memgraph.render_context(
-                await memgraph.build_context(session, series.id, volume.order))
 
             unit = "page(s)"
             if volume.kind == VolumeKind.TEXT.value:
@@ -344,7 +380,6 @@ async def _run_text_volume(session, volume, series, job, resume, series_ctx) -> 
                    message=f"Translating {total} chunk(s) across {len(volume.pages)} chapters...")
     sem = asyncio.Semaphore(_concurrency())
     lock = asyncio.Lock()
-    glossary = _glossary_list(series)
     state = {"done": 0, "failed": 0}
 
     async def handle(page, regions):
@@ -356,9 +391,10 @@ async def _run_text_volume(session, volume, series, job, resume, series_ctx) -> 
         }]
         async with sem:
             _check_cancel(volume.id)
+            ctx, glossary = await _prompt_parts(series.id, series_ctx, volume.order, page.index,
+                                                [r.japanese_text for r in regions])
             try:
-                result = await asyncio.to_thread(
-                    llm.translate_text, series_ctx, glossary, payload)
+                result = await asyncio.to_thread(llm.translate_text, ctx, glossary, payload)
             except llm.LLMError as e:
                 log.warning(f"[{volume.id}] text chunk failed (ch {page.index}): {e}")
                 async with lock:
@@ -377,8 +413,8 @@ async def _run_text_volume(session, volume, series, job, resume, series_ctx) -> 
                     r.english_text = t
             await session.commit()
             await _merge_new_terms(session, series, result.get("new_terms", {}),
-                                       volume=volume, memory_payload=result.get("memory"),
-                                       page_id=None)
+                                   volume=volume, memory_payload=result.get("memory"),
+                                   page_id=page.id, page=page.index)
             state["done"] += 1
             await _set_job(session, job, current=state["done"],
                            message=f"chapter {page.index}: {len(regions)} blocks translated")
@@ -397,15 +433,17 @@ async def _run_vision(session, store, volume, series, job, text_pages, resume, s
                    message="Vision OCR + translating...")
     sem = asyncio.Semaphore(_concurrency())
     lock = asyncio.Lock()  # the AsyncSession is not concurrency-safe; serialize DB writes
-    glossary = _glossary_list(series)
 
     async def handle(page):
         _check_cancel(volume.id)
         async with sem:
             _check_cancel(volume.id)
             img = await asyncio.to_thread(store.get, page.image_key)
+            # The page's text is unknown until the model reads it, so the block
+            # leads with the most connected names instead of the ones on the page.
+            ctx, glossary = await _prompt_parts(series.id, series_ctx, volume.order, page.index, None)
             try:
-                result = await asyncio.to_thread(llm.vision_ocr_translate, series_ctx, glossary, img)
+                result = await asyncio.to_thread(llm.vision_ocr_translate, ctx, glossary, img)
             except llm.LLMError as e:
                 log.warning(f"[{volume.id}] vision page {page.index} failed: {e}")
                 async with lock:
@@ -420,8 +458,8 @@ async def _run_vision(session, store, volume, series, job, text_pages, resume, s
             # and an uncommitted translation would be rolled back with them.
             await session.commit()
             await _merge_new_terms(session, series, result.get("new_terms", {}),
-                                       volume=volume, memory_payload=result.get("memory"),
-                                       page_id=None)
+                                   volume=volume, memory_payload=result.get("memory"),
+                                   page_id=page.id, page=page.index)
             await _maybe_detect_language(
                 session, series, [r.get("japanese_text", "") for r in result.get("regions", [])]
             )
@@ -519,8 +557,10 @@ async def _run_ocr_text(session, store, volume, series, job, text_pages, resume,
                    message="Translating...")
     sem = asyncio.Semaphore(_concurrency())
     lock = asyncio.Lock()
-    glossary = _glossary_list(series)
     state = {"done": 0, "failed": 0}
+
+    def texts_of(pages):
+        return [r["japanese_text"] for p in pages for r in page_regions[p.id]]
 
     async def handle(batch):
         _check_cancel(volume.id)
@@ -532,8 +572,13 @@ async def _run_ocr_text(session, store, volume, series, job, text_pages, resume,
         ]
         async with sem:
             _check_cancel(volume.id)
+            # A batch reads as of its first page, and what it teaches is stamped
+            # at its last: no page in it sees what a later page established.
+            first, last = min(p.index for p in batch), max(p.index for p in batch)
+            ctx, glossary = await _prompt_parts(series.id, series_ctx, volume.order, first,
+                                                texts_of(batch))
             try:
-                result = await asyncio.to_thread(llm.translate_text, series_ctx, glossary, payload)
+                result = await asyncio.to_thread(llm.translate_text, ctx, glossary, payload)
             except llm.LLMError as e:
                 # A batch is several pages in one request. When that request
                 # fails it used to take the whole batch down; retry page by page
@@ -544,9 +589,11 @@ async def _run_ocr_text(session, store, volume, series, job, text_pages, resume,
                     single = [{"page_index": p.index,
                                "regions": [{"id": r["id"], "japanese_text": r["japanese_text"]}
                                            for r in page_regions[p.id]]}]
+                    one_ctx, one_glossary = await _prompt_parts(
+                        series.id, series_ctx, volume.order, p.index, texts_of([p]))
                     try:
                         one = await asyncio.to_thread(
-                            llm.translate_text, series_ctx, glossary, single)
+                            llm.translate_text, one_ctx, one_glossary, single)
                     except llm.LLMError as pe:
                         log.warning(f"[{volume.id}] page {p.index} failed: {pe}")
                         async with lock:
@@ -568,8 +615,8 @@ async def _run_ocr_text(session, store, volume, series, job, text_pages, resume,
                                     region.english_text = t
                         await session.commit()
                         await _merge_new_terms(session, series, one.get("new_terms", {}),
-                                               volume=volume,
-                                               memory_payload=one.get("memory"), page_id=None)
+                                               volume=volume, memory_payload=one.get("memory"),
+                                               page_id=p.id, page=p.index)
                         state["done"] += 1
                         await _set_job(session, job, current=state["done"],
                                        message=f"page {p.index} translated (batch retry)")
@@ -590,8 +637,8 @@ async def _run_ocr_text(session, store, volume, series, job, text_pages, resume,
                         region.english_text = translations[rid]
             await session.commit()
             await _merge_new_terms(session, series, result.get("new_terms", {}),
-                                       volume=volume, memory_payload=result.get("memory"),
-                                       page_id=None)
+                                   volume=volume, memory_payload=result.get("memory"),
+                                   page_id=None, page=last)
             state["done"] += 1
             await _set_job(session, job, current=state["done"], message=f"batch {state['done']}/{total_batches}")
 

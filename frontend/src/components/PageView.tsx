@@ -2,14 +2,31 @@ import { useLayoutEffect, useRef, useState } from "react";
 import type { Page, Region } from "@/types";
 import { cn } from "@/lib/utils";
 
-/** Text that shrinks until it fits its box, from `max` down to 7px. */
+/** Text that shrinks until it fits its box, from `max` down to 7px. Starts over
+ * whenever the box changes size: it has no height until the page image loads. */
 function FitText({ text, max }: { text: string; max: number }) {
   const ref = useRef<HTMLDivElement>(null);
   const [size, setSize] = useState(max);
   useLayoutEffect(() => setSize(max), [text, max]);
   useLayoutEffect(() => {
     const el = ref.current;
-    if (el && size > 7 && el.scrollHeight > el.clientHeight + 1) setSize((s) => s - 0.5);
+    if (!el) return;
+    let last = `${el.clientWidth}x${el.clientHeight}`;
+    const observer = new ResizeObserver(() => {
+      const now = `${el.clientWidth}x${el.clientHeight}`;
+      if (now !== last) {
+        last = now;
+        setSize(max);
+      }
+    });
+    observer.observe(el);
+    return () => observer.disconnect();
+  }, [max]);
+  useLayoutEffect(() => {
+    const el = ref.current;
+    if (el && el.clientHeight > 0 && size > 7 && el.scrollHeight > el.clientHeight + 1) {
+      setSize((s) => s - 0.5);
+    }
   }, [size, text]);
   return (
     <div ref={ref} className="h-full w-full overflow-hidden leading-tight" style={{ fontSize: `${size}px` }}>
@@ -91,7 +108,9 @@ export default function PageView({
               width: `${r.width}%`,
               height: `${r.height}%`,
               fontFamily: "var(--font-serif)",
-              backgroundColor: `color-mix(in srgb, var(--background) ${Math.round(overlayDim * 100)}%, transparent)`,
+              // A placed translation replaces the text under it, so it covers it
+              // fully; the dimming setting is for the whole-page column.
+              backgroundColor: "var(--background)",
             }}
           >
             <FitText text={r.english_text} max={textSize} />

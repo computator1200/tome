@@ -351,7 +351,7 @@ function ProviderCard() {
           </Select>
           <p className="text-xs text-muted-foreground">
             How the "local OCR + text" engine reads pages: a vision model (accurate, no local
-            install) or local local OCR (needs torch). Translation always uses the text model.
+            install) or a local OCR model (needs torch). Translation always uses the text model.
           </p>
         </div>
         <div className="flex gap-2">
