@@ -1,0 +1,10 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 128 128" role="img" aria-label="Tome">
+  <!-- The app mark: Lucide book-open, the same glyph as the in-app header and favicon.svg. -->
+  <rect width="128" height="128" rx="29" fill="#09090b"/>
+  <rect x="0.75" y="0.75" width="126.5" height="126.5" rx="28.25" fill="none" stroke="#27272a" stroke-width="1.5"/>
+  <g transform="translate(32 32) scale(2.667)" fill="none" stroke="#fafafa" stroke-width="1.75"
+     stroke-linecap="round" stroke-linejoin="round">
+    <path d="M12 7v14"/>
+    <path d="M3 18a1 1 0 0 1-1-1V4a1 1 0 0 1 1-1h5a4 4 0 0 1 4 4 4 4 0 0 1 4-4h5a1 1 0 0 1 1 1v13a1 1 0 0 1-1 1h-6a3 3 0 0 0-3 3 3 3 0 0 0-3-3z"/>
+  </g>
+</svg>

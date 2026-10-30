@@ -1,0 +1,82 @@
+name: Deploy
+
+# Manual only, on purpose: a push to main should not restart a running
+# instance. Run it from the Actions tab.
+on:
+  workflow_dispatch:
+    inputs:
+      target:
+        description: "systemd unit to restart after syncing"
+        required: true
+        default: tome
+        type: string
+      dry_run:
+        description: "Show what would change, do not sync or restart"
+        required: false
+        default: false
+        type: boolean
+
+concurrency:
+  group: deploy-${{ inputs.target }}
+  cancel-in-progress: false
+
+permissions:
+  contents: read
+
+jobs:
+  deploy:
+    name: deploy
+    runs-on: ubuntu-latest
+    environment: production
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "22"
+          cache: npm
+          cache-dependency-path: frontend/package-lock.json
+
+      - name: Build frontend
+        working-directory: frontend
+        run: |
+          npm ci --no-audit --no-fund
+          npm run build
+        env:
+          VITE_BASE: /${{ inputs.target }}/
+
+      - name: Configure SSH
+        if: ${{ !inputs.dry_run }}
+        run: |
+          install -m 700 -d ~/.ssh
+          echo "${{ secrets.DEPLOY_SSH_KEY }}" > ~/.ssh/id_ed25519
+          chmod 600 ~/.ssh/id_ed25519
+          ssh-keyscan -H "${{ secrets.DEPLOY_HOST }}" >> ~/.ssh/known_hosts 2>/dev/null
+
+      - name: Sync source and built assets
+        if: ${{ !inputs.dry_run }}
+        run: |
+          rsync -az --delete --exclude 'node_modules' --exclude 'venv' --exclude 'data' \
+            --exclude 'storage' --exclude '.env' --exclude 'logs' \
+            -e "ssh -i ~/.ssh/id_ed25519" \
+            backend/ "${{ secrets.DEPLOY_USER }}@${{ secrets.DEPLOY_HOST }}:/srv/${{ inputs.target }}/backend/"
+          rsync -az --delete -e "ssh -i ~/.ssh/id_ed25519" \
+            frontend/dist/ "${{ secrets.DEPLOY_USER }}@${{ secrets.DEPLOY_HOST }}:/srv/${{ inputs.target }}/frontend/dist/"
+
+      - name: Restart and verify
+        if: ${{ !inputs.dry_run }}
+        run: |
+          ssh -i ~/.ssh/id_ed25519 "${{ secrets.DEPLOY_USER }}@${{ secrets.DEPLOY_HOST }}" bash -s <<'EOF'
+            set -euo pipefail
+            sudo systemctl restart "${{ inputs.target }}"
+            sleep 5
+            systemctl is-active "${{ inputs.target }}"
+          EOF
+
+      - name: Summary
+        run: |
+          echo "target: ${{ inputs.target }}" >> $GITHUB_STEP_SUMMARY
+          echo "dry run: ${{ inputs.dry_run }}" >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+          echo "Required repository secrets: DEPLOY_HOST, DEPLOY_USER, DEPLOY_SSH_KEY" >> $GITHUB_STEP_SUMMARY

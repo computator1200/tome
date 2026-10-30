@@ -1,0 +1,174 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="1400" height="850" viewBox="0 0 1400 850" font-family="Inter, ui-sans-serif, system-ui, -apple-system, 'Segoe UI', Roboto, Helvetica, Arial, sans-serif">
+  <title>Tome agent surface</title>
+  <desc>Browser EventSource stream, HTTP routes, the tool-calling loop in services/agent.py, the two toolsets in services/agent_tools.py, and what the agent can and cannot do.</desc>
+  <defs>
+    <pattern id="grid" width="40" height="40" patternUnits="userSpaceOnUse">
+      <path d="M40 0H0V40" fill="none" stroke="#18181b" stroke-width="1"/>
+    </pattern>
+    <radialGradient id="glow" cx="12%" cy="0%" r="60%">
+      <stop offset="0" stop-color="#27272a" stop-opacity="0.55"/>
+      <stop offset="1" stop-color="#09090b" stop-opacity="0"/>
+    </radialGradient>
+    <marker id="arr" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse">
+      <path d="M0 0L10 5L0 10z" fill="#71717a"/>
+    </marker>
+    <style>
+      .h  { fill:#fafafa; font-size:19px; font-weight:600; }
+      .h2 { fill:#fafafa; font-size:17px; font-weight:600; }
+      .b  { fill:#fafafa; font-size:16px; }
+      .s  { fill:#a1a1aa; font-size:16px; }
+      .m  { fill:#d4d4d8; font-size:14px; font-family:ui-monospace, SFMono-Regular, 'Cascadia Mono', Menlo, Consolas, monospace; }
+      .r  { fill:#71717a; font-size:13px; font-family:ui-monospace, SFMono-Regular, 'Cascadia Mono', Menlo, Consolas, monospace; }
+      .w  { fill:#fbbf24; font-size:15px; }
+      .box  { fill:#111113; stroke:#27272a; stroke-width:1.5; }
+      .node { fill:#0e0e10; stroke:#3f3f46; stroke-width:1.5; }
+      .code { fill:#0b0b0d; stroke:#27272a; stroke-width:1.5; }
+      .pill { fill:#18181b; stroke:#27272a; stroke-width:1.5; }
+      .ln   { stroke:#71717a; stroke-width:1.6; fill:none; }
+      .dot  { fill:#fbbf24; }
+    </style>
+  </defs>
+
+  <rect width="1400" height="850" fill="#09090b"/>
+  <rect width="1400" height="850" fill="url(#grid)"/>
+  <rect width="1400" height="850" fill="url(#glow)"/>
+
+  <!-- header -->
+  <text x="30" y="52" fill="#fafafa" font-size="30" font-weight="700">Agent surface</text>
+  <text x="30" y="84" class="s">One loop, two session kinds: ingest (curates uploads) and chat (one per series). The DB transcript is the state.</text>
+  <rect x="826" y="26" width="168" height="34" rx="17" class="pill"/>
+  <text x="910" y="48" class="m" text-anchor="middle">ingest ≤ 60 steps</text>
+  <rect x="1006" y="26" width="152" height="34" rx="17" class="pill"/>
+  <text x="1082" y="48" class="m" text-anchor="middle">chat ≤ 12 steps</text>
+  <rect x="1170" y="26" width="200" height="34" rx="17" class="pill"/>
+  <text x="1270" y="48" class="m" text-anchor="middle">tool result ≤ 8000 ch</text>
+
+  <!-- browser -->
+  <rect x="30" y="122" width="320" height="356" rx="14" class="box"/>
+  <text x="50" y="154" class="h">Browser</text>
+  <text x="50" y="184" class="m">AgentChat.tsx</text>
+  <text x="200" y="184" class="s">series chat</text>
+  <text x="50" y="206" class="m">ImportSession.tsx</text>
+  <text x="200" y="206" class="s">ingest</text>
+  <text x="50" y="236" class="m">createAgentStream()</text>
+  <rect x="50" y="248" width="280" height="92" rx="8" class="code"/>
+  <text x="64" y="272" class="m">new EventSource(</text>
+  <text x="80" y="292" class="m">`<tspan style="fill:#fbbf24">${BASE}</tspan>/api/agent/sessions/</text>
+  <text x="80" y="312" class="m">${id}/stream?after=${seq}`</text>
+  <text x="64" y="332" class="m">)</text>
+  <text x="50" y="364" class="s">EventSource skips axios, whose</text>
+  <text x="50" y="384" class="s">baseURL is ${BASE}/api, so the</text>
+  <text x="50" y="404" class="s">prefix is added by hand. BASE =</text>
+  <text x="50" y="424" class="s">Vite BASE_URL; server uses URL_PREFIX.</text>
+  <text x="50" y="460" class="r">api.ts:15-19, :258 · main.py:47-54</text>
+
+  <!-- http -->
+  <rect x="372" y="122" width="340" height="356" rx="14" class="box"/>
+  <text x="392" y="154" class="h">HTTP</text>
+  <text x="452" y="154" class="m">routers/agent.py</text>
+  <text x="392" y="188" class="m">POST /api/ingest</text>
+  <text x="392" y="208" class="s">→ start_ingest_session()</text>
+  <text x="392" y="238" class="m">GET  /api/series/{id}/chat</text>
+  <text x="392" y="258" class="s">→ one reusable chat session</text>
+  <text x="392" y="288" class="m">POST …/sessions/{id}/message</text>
+  <text x="392" y="308" class="s">→ post_user_message(), respawn</text>
+  <text x="392" y="338" class="m">GET  …/sessions/{id}/stream</text>
+  <text x="392" y="358" class="s">polls the DB every 0.7 s; sends</text>
+  <text x="392" y="378" class="s">"message" per new row (seq &gt; after)</text>
+  <text x="392" y="398" class="s">and "status" on change; ends when</text>
+  <text x="392" y="418" class="s">the session is no longer running.</text>
+  <text x="392" y="460" class="r">agent.py:49, :125, :161, :197</text>
+
+  <!-- arrows browser <-> http -->
+  <path d="M350 290 H370" class="ln" marker-end="url(#arr)"/>
+  <path d="M370 330 H352" class="ln" marker-end="url(#arr)"/>
+
+  <!-- loop -->
+  <rect x="734" y="122" width="636" height="356" rx="14" class="box"/>
+  <text x="754" y="154" class="h">Loop</text>
+  <text x="810" y="154" class="m">services/agent.py · _run()</text>
+
+  <rect x="754" y="178" width="180" height="70" rx="10" class="node"/>
+  <text x="844" y="208" class="h2" text-anchor="middle">load history</text>
+  <text x="844" y="232" class="s" text-anchor="middle">first 2 + last 60</text>
+
+  <rect x="962" y="178" width="190" height="70" rx="10" class="node"/>
+  <text x="1057" y="208" class="h2" text-anchor="middle">chat_with_tools()</text>
+  <text x="1057" y="232" class="s" text-anchor="middle">temp 0.2, 3 tries</text>
+
+  <rect x="1180" y="178" width="170" height="70" rx="10" class="node"/>
+  <text x="1265" y="208" class="h2" text-anchor="middle">tool_calls?</text>
+  <text x="1265" y="232" class="s" text-anchor="middle">none → done</text>
+
+  <rect x="1180" y="286" width="170" height="70" rx="10" class="node"/>
+  <text x="1265" y="316" class="h2" text-anchor="middle">run_tool()</text>
+  <text x="1265" y="340" class="s" text-anchor="middle">append result</text>
+
+  <path d="M934 213 H960" class="ln" marker-end="url(#arr)"/>
+  <path d="M1152 213 H1178" class="ln" marker-end="url(#arr)"/>
+  <path d="M1265 248 V284" class="ln" marker-end="url(#arr)"/>
+  <path d="M1180 321 H844 V250" class="ln" marker-end="url(#arr)"/>
+  <text x="1010" y="312" class="s" text-anchor="middle">next step</text>
+
+  <text x="754" y="384" class="b">ask_user raises AskUser → status waiting_user;</text>
+  <text x="754" y="404" class="s">the run returns and the reply respawns it from history.</text>
+  <text x="754" y="430" class="b">Step cap hit → status error. Cancel checked per step.</text>
+  <text x="754" y="460" class="r">agent.py:30-32, :183-247 · llm.py:203</text>
+
+  <!-- ingest toolset -->
+  <rect x="30" y="500" width="530" height="330" rx="14" class="box"/>
+  <text x="50" y="532" class="h">ingest toolset</text>
+  <text x="186" y="532" class="s">15 tools</text>
+  <circle cx="404" cy="527" r="5" class="dot"/><text x="416" y="532" class="s">writes the DB</text>
+  <text x="50" y="566" class="m">list_groups</text>
+  <text x="50" y="588" class="m">sample_pages</text>
+  <text x="50" y="610" class="m">inspect_document</text>
+  <text x="50" y="632" class="m">fetch_webnovel_index</text>
+  <text x="50" y="654" class="m">search_series_metadata</text>
+  <text x="50" y="676" class="m">get_series_metadata</text>
+  <text x="50" y="698" class="m">web_search</text>
+  <text x="50" y="720" class="m">ask_user</text>
+  <circle cx="290" cy="561" r="4" class="dot"/><text x="302" y="566" class="m">link_series_metadata</text>
+  <circle cx="290" cy="583" r="4" class="dot"/><text x="302" y="588" class="m">create_series</text>
+  <circle cx="290" cy="605" r="4" class="dot"/><text x="302" y="610" class="m">update_series</text>
+  <circle cx="290" cy="627" r="4" class="dot"/><text x="302" y="632" class="m">create_volumes</text>
+  <circle cx="290" cy="649" r="4" class="dot"/><text x="302" y="654" class="m">create_volumes_from_documents</text>
+  <circle cx="290" cy="671" r="4" class="dot"/><text x="302" y="676" class="m">create_volume_from_webnovel</text>
+  <circle cx="290" cy="693" r="4" class="dot"/><text x="302" y="698" class="m">enqueue_processing</text>
+  <text x="50" y="760" class="w">enqueue_processing spends LLM usage. "Ask first" is in</text>
+  <text x="50" y="782" class="w">the prompt (agent.py:79), not checked in code (tools:307).</text>
+  <text x="50" y="814" class="r">agent_tools.py:465-575</text>
+
+  <!-- chat toolset -->
+  <rect x="580" y="500" width="340" height="330" rx="14" class="box"/>
+  <text x="600" y="532" class="h">chat toolset</text>
+  <text x="718" y="532" class="s">11 tools</text>
+  <text x="600" y="566" class="m">get_series_info</text>
+  <text x="600" y="588" class="m">get_summaries</text>
+  <text x="600" y="610" class="m">get_glossary</text>
+  <text x="600" y="632" class="m">search_text</text><text x="712" y="632" class="s">FTS5, LIKE fallback</text>
+  <text x="600" y="654" class="m">read_page</text><text x="690" y="654" class="s">≤ 6000 chars</text>
+  <text x="600" y="676" class="m">search_series_metadata</text>
+  <text x="600" y="698" class="m">get_series_metadata</text>
+  <text x="600" y="720" class="m">web_search</text>
+  <text x="600" y="742" class="m">ask_user</text>
+  <circle cx="788" cy="715" r="4" class="dot"/><text x="800" y="720" class="m">update_series</text>
+  <circle cx="788" cy="693" r="4" class="dot"/><text x="800" y="698" class="m">link_series…</text>
+  <text x="600" y="782" class="w">Not read-only, despite the</text>
+  <text x="600" y="804" class="w">module docstring (tools:4-5).</text>
+
+  <!-- can / cannot -->
+  <rect x="940" y="500" width="430" height="330" rx="14" class="box"/>
+  <text x="960" y="532" class="h">Can</text>
+  <text x="960" y="560" class="s">· create series and volumes (ingest)</text>
+  <text x="960" y="582" class="s">· queue translation (ingest only)</text>
+  <text x="960" y="604" class="s">· search and read translated pages</text>
+  <text x="960" y="626" class="s">· overwrite series metadata</text>
+  <text x="960" y="648" class="s">· pause on a question and resume</text>
+  <text x="960" y="688" class="h">Cannot</text>
+  <text x="960" y="716" class="s">· delete anything, edit the glossary</text>
+  <text x="970" y="738" class="s">or any translated region</text>
+  <text x="960" y="760" class="s">· use graph memory (not built)</text>
+  <text x="960" y="782" class="s">· auto-resume after a restart (:405)</text>
+  <text x="960" y="804" class="s">· stream tokens: SSE sends whole rows</text>
+</svg>

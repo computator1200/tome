@@ -1,0 +1,61 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="1400" height="560" viewBox="0 0 1400 560" font-family="ui-sans-serif, system-ui, -apple-system, 'Segoe UI', sans-serif">
+  <defs>
+    <marker id="arr" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="8" markerHeight="8" orient="auto-start-reverse">
+      <path d="M0,0 L10,5 L0,10 z" fill="#a1a1aa"/>
+    </marker>
+  </defs>
+  <rect width="1400" height="560" fill="#09090b"/>
+  <text x="40" y="62" fill="#fafafa" font-size="30" font-weight="700">Translation pipeline</text>
+  <text x="40" y="96" fill="#a1a1aa" font-size="18">One volume at a time, from upload to reader.</text>
+
+  <g fill="#18181b" stroke="#52525b" stroke-width="2">
+    <rect x="40"   y="140" width="232" height="250" rx="16"/>
+    <rect x="310"  y="140" width="232" height="250" rx="16"/>
+    <rect x="580"  y="140" width="232" height="250" rx="16"/>
+    <rect x="850"  y="140" width="232" height="250" rx="16" stroke="#38bdf8"/>
+    <rect x="1120" y="140" width="232" height="250" rx="16"/>
+  </g>
+  <g stroke="#a1a1aa" stroke-width="2.5" marker-end="url(#arr)">
+    <line x1="274" y1="265" x2="306" y2="265"/>
+    <line x1="544" y1="265" x2="576" y2="265"/>
+    <line x1="814" y1="265" x2="846" y2="265"/>
+    <line x1="1084" y1="265" x2="1116" y2="265"/>
+  </g>
+
+  <g fill="#71717a" font-size="16" font-weight="600">
+    <text x="64" y="178">1</text><text x="334" y="178">2</text><text x="604" y="178">3</text>
+    <text x="874" y="178">4</text><text x="1144" y="178">5</text>
+  </g>
+  <g fill="#fafafa" font-size="22" font-weight="700">
+    <text x="64" y="212">Ingest</text>
+    <text x="334" y="212">Classify</text>
+    <text x="604" y="212">Read the page</text>
+    <text x="874" y="212">Translate in</text>
+    <text x="874" y="240">batches</text>
+    <text x="1144" y="212">Reader / export</text>
+  </g>
+  <g fill="#d4d4d8" font-size="20">
+    <text x="64" y="256">An upload becomes</text>
+    <text x="64" y="286">a volume of page</text>
+    <text x="64" y="316">images.</text>
+
+    <text x="334" y="256">Each page is tagged</text>
+    <text x="334" y="286">text or art; art</text>
+    <text x="334" y="316">pages are skipped.</text>
+
+    <text x="604" y="256">A vision model or</text>
+    <text x="604" y="286">local OCR finds the</text>
+    <text x="604" y="316">text on each page.</text>
+
+    <text x="874" y="288">batch 5 · 4 in flight ·</text>
+    <text x="874" y="318">series glossary</text>
+    <text x="874" y="348">attached.</text>
+
+    <text x="1144" y="256">English text sits</text>
+    <text x="1144" y="286">over each page;</text>
+    <text x="1144" y="316">export to EPUB or PDF.</text>
+  </g>
+
+  <rect x="40" y="440" width="1312" height="64" rx="12" fill="#111114" stroke="#27272a" stroke-width="1.5"/>
+  <text x="696" y="479" fill="#a1a1aa" font-size="18" text-anchor="middle">batch 5 pages (1–20) · 4 LLM calls in flight · first 200 glossary terms per prompt · 1 volume at a time</text>
+</svg>

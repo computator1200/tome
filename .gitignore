@@ -1,0 +1,11 @@
+.env
+__pycache__/
+*.pyc
+backend/venv/
+backend/storage/
+backend/data/
+backend/logs/
+node_modules/
+frontend/dist/
+samples/
+.claude/

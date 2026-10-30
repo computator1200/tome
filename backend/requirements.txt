@@ -1,0 +1,44 @@
+fastapi
+uvicorn[standard]
+python-multipart
+sse-starlette
+python-dotenv
+natsort
+
+# Database
+sqlalchemy[asyncio]
+aiosqlite
+alembic
+
+# Single OpenAI-compatible LLM endpoint
+openai
+
+# NovelUpdates scraping (Cloudflare-aware) + AniList fallback (services/metadata.py)
+curl_cffi
+cloudscraper
+pypdf
+beautifulsoup4
+lxml
+cssselect
+httpx
+
+# Image handling / classification
+Pillow
+opencv-python-headless
+numpy
+
+# Visual PDF export (overlay composited onto the scans)
+fpdf2
+
+# Local OCR path (ocr_text engine). Heavy (torch); imported lazily so the app
+# still boots without them (the vision engine doesn't need them). On Python
+# 3.14 install via uv if pip stalls: `uv pip install manga-ocr`.
+manga-ocr
+# torch: a bare install pulls the CPU build. For NVIDIA GPU (this machine: a
+# 4070 Ti) install the CUDA 12.6 wheel instead — it's the cp314 Windows build:
+#   uv pip install "torch==2.12.1+cu126" --index-url https://download.pytorch.org/whl/cu126
+torch
+# torchvision gives transformers its default image-processor backend (without
+# it, it falls back to a PIL processor and warns). Match the torch CUDA build:
+#   uv pip install "torchvision==0.27.1+cu126" --index-url https://download.pytorch.org/whl/cu126
+torchvision

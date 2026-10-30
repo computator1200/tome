@@ -1,0 +1,20 @@
+name: Feature request
+description: Something Tome should do that it does not.
+labels: [enhancement]
+body:
+  - type: textarea
+    id: problem
+    attributes:
+      label: The problem
+      description: What you are trying to do and where Tome gets in the way.
+    validations:
+      required: true
+  - type: textarea
+    id: proposal
+    attributes:
+      label: What you would like
+      description: The behaviour you want. If it is on the roadmap (docs/ROADMAP.md), say which item.
+  - type: textarea
+    id: alternatives
+    attributes:
+      label: Alternatives considered

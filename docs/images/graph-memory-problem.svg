@@ -1,0 +1,66 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="1400" height="660" viewBox="0 0 1400 660" font-family="ui-sans-serif, system-ui, -apple-system, 'Segoe UI', 'Noto Sans JP', 'Yu Gothic', Meiryo, sans-serif">
+  <defs>
+    <marker id="arr" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="8" markerHeight="8" orient="auto-start-reverse"><path d="M0,0 L10,5 L0,10 z" fill="#71717a"/></marker>
+    <marker id="arrA" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="8" markerHeight="8" orient="auto-start-reverse"><path d="M0,0 L10,5 L0,10 z" fill="#38bdf8"/></marker>
+  </defs>
+  <rect width="1400" height="660" fill="#09090b"/>
+  <text x="40" y="60" fill="#fafafa" font-size="30" font-weight="700">One character, four names</text>
+  <text x="40" y="94" fill="#a1a1aa" font-size="20">The same person as the source text names her, and what each approach produces by volume 7.</text>
+
+  <!-- column 1: source -->
+  <text x="40" y="152" fill="#a1a1aa" font-size="18" font-weight="600">IN THE SOURCE</text>
+  <g font-size="22">
+    <rect x="40" y="170" width="360" height="70" rx="10" fill="#18181b" stroke="#3f3f46"/>
+    <text x="60" y="213" fill="#71717a" font-size="17">vol 1</text><text x="130" y="202" fill="#fafafa">リゼット・アルノー</text>
+    <rect x="40" y="260" width="360" height="70" rx="10" fill="#18181b" stroke="#3f3f46"/>
+    <text x="60" y="303" fill="#71717a" font-size="17">vol 1</text><text x="130" y="292" fill="#fafafa">リゼット</text>
+    <rect x="40" y="350" width="360" height="70" rx="10" fill="#18181b" stroke="#3f3f46"/>
+    <text x="60" y="393" fill="#71717a" font-size="17">vol 2</text><text x="130" y="382" fill="#fafafa">リズ</text>
+    <rect x="40" y="440" width="360" height="70" rx="10" fill="#18181b" stroke="#3f3f46"/>
+    <text x="60" y="483" fill="#71717a" font-size="17">vol 4</text><text x="130" y="472" fill="#fafafa">灰の聖女</text>
+  </g>
+  <g fill="#71717a" font-size="16">
+    <text x="130" y="228">full name</text><text x="130" y="318">given name</text>
+    <text x="130" y="408">nickname</text><text x="130" y="498">title</text>
+  </g>
+
+  <!-- column 2: page by page -->
+  <text x="470" y="152" fill="#a1a1aa" font-size="18" font-weight="600">PAGE BY PAGE</text>
+  <g stroke="#71717a" stroke-width="1.5" marker-end="url(#arr)">
+    <line x1="404" y1="205" x2="466" y2="205"/><line x1="404" y1="295" x2="466" y2="295"/>
+    <line x1="404" y1="385" x2="466" y2="385"/><line x1="404" y1="475" x2="466" y2="475"/>
+  </g>
+  <g font-size="22" fill="#d4d4d8">
+    <rect x="470" y="170" width="330" height="70" rx="10" fill="none" stroke="#3f3f46" stroke-dasharray="6 5"/><text x="492" y="214">Lisette Arnault</text>
+    <rect x="470" y="260" width="330" height="70" rx="10" fill="none" stroke="#3f3f46" stroke-dasharray="6 5"/><text x="492" y="304">Rizette</text>
+    <rect x="470" y="350" width="330" height="70" rx="10" fill="none" stroke="#3f3f46" stroke-dasharray="6 5"/><text x="492" y="394">Liz</text>
+    <rect x="470" y="440" width="330" height="70" rx="10" fill="none" stroke="#3f3f46" stroke-dasharray="6 5"/><text x="492" y="484">the Ash Saint</text>
+  </g>
+  <text x="470" y="556" fill="#fafafa" font-size="20" font-weight="600">Four people.</text>
+  <text x="470" y="586" fill="#a1a1aa" font-size="18">That she serves the Ash Order (vol 2)</text>
+  <text x="470" y="612" fill="#a1a1aa" font-size="18">is not on the page being translated.</text>
+
+  <!-- column 3: graph -->
+  <text x="880" y="152" fill="#a1a1aa" font-size="18" font-weight="600">WITH THE GRAPH</text>
+  <g font-size="19" fill="#fafafa">
+    <rect x="880" y="176" width="200" height="44" rx="22" fill="#0c1a24" stroke="#38bdf8" stroke-width="1.5"/><text x="980" y="205" text-anchor="middle">リゼット・アルノー</text>
+    <rect x="880" y="236" width="200" height="44" rx="22" fill="#0c1a24" stroke="#38bdf8" stroke-width="1.5"/><text x="980" y="265" text-anchor="middle">リゼット</text>
+    <rect x="880" y="296" width="200" height="44" rx="22" fill="#0c1a24" stroke="#38bdf8" stroke-width="1.5"/><text x="980" y="325" text-anchor="middle">リズ</text>
+    <rect x="880" y="356" width="200" height="44" rx="22" fill="#0c1a24" stroke="#38bdf8" stroke-width="1.5"/><text x="980" y="385" text-anchor="middle">灰の聖女</text>
+  </g>
+  <g stroke="#38bdf8" stroke-width="1.5" fill="none" marker-end="url(#arrA)">
+    <path d="M1080,198 C1120,198 1120,280 1150,282"/><path d="M1080,258 C1115,258 1120,284 1150,286"/>
+    <path d="M1080,318 C1115,318 1120,292 1150,290"/><path d="M1080,378 C1120,378 1120,296 1150,294"/>
+  </g>
+  <rect x="1154" y="246" width="206" height="88" rx="12" fill="#18181b" stroke="#38bdf8" stroke-width="2"/>
+  <text x="1257" y="282" fill="#fafafa" font-size="21" font-weight="700" text-anchor="middle">one entity</text>
+  <text x="1257" y="312" fill="#a1a1aa" font-size="17" text-anchor="middle">person, first_volume 1</text>
+  <line x1="1257" y1="334" x2="1257" y2="452" stroke="#a1a1aa" stroke-width="1.5" marker-end="url(#arr)"/>
+  <text x="1270" y="386" fill="#d4d4d8" font-size="18">serves</text>
+  <text x="1270" y="410" fill="#38bdf8" font-size="17">vol 2</text>
+  <rect x="1174" y="456" width="166" height="54" rx="10" fill="#18181b" stroke="#3f3f46"/>
+  <text x="1257" y="490" fill="#fafafa" font-size="20" text-anchor="middle">灰の教団</text>
+  <text x="880" y="556" fill="#fafafa" font-size="20" font-weight="600">One person, one rendering.</text>
+  <text x="880" y="586" fill="#a1a1aa" font-size="18">The relation travels with her into every</text>
+  <text x="880" y="612" fill="#a1a1aa" font-size="18">prompt from volume 2 onwards.</text>
+</svg>

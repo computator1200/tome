@@ -1,0 +1,76 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="1400" height="860" viewBox="0 0 1400 860" font-family="ui-sans-serif, system-ui, -apple-system, 'Segoe UI', 'Noto Sans JP', 'Yu Gothic', Meiryo, sans-serif">
+  <rect width="1400" height="860" fill="#09090b"/>
+  <text x="40" y="60" fill="#fafafa" font-size="30" font-weight="700">Three tables, one SQLite file</text>
+  <text x="40" y="94" fill="#a1a1aa" font-size="20">Nodes, the names that point at them, and the relations between them. Blue columns carry a volume number.</text>
+<rect x="40" y="150" width="260" height="176" rx="10" fill="#18181b" stroke="#3f3f46" stroke-width="1.5"/>
+<path d="M40,202 H300" stroke="#3f3f46"/>
+<text x="60" y="184" fill="#fafafa" font-size="22" font-weight="700" font-family="Consolas, 'Cascadia Mono', ui-monospace, monospace">series</text>
+<text x="60" y="232" fill="#e4e4e7" font-size="19" font-family="Consolas, 'Cascadia Mono', ui-monospace, monospace">id</text>
+<text x="280" y="232" fill="#71717a" font-size="16" text-anchor="end">PK</text>
+<text x="60" y="270" fill="#e4e4e7" font-size="19" font-family="Consolas, 'Cascadia Mono', ui-monospace, monospace">title</text>
+<text x="280" y="270" fill="#71717a" font-size="16" text-anchor="end"></text>
+<text x="60" y="308" fill="#e4e4e7" font-size="19" font-family="Consolas, 'Cascadia Mono', ui-monospace, monospace">...</text>
+<text x="280" y="308" fill="#71717a" font-size="16" text-anchor="end"></text>
+<rect x="500" y="150" width="420" height="290" rx="10" fill="#18181b" stroke="#3f3f46" stroke-width="1.5"/>
+<path d="M500,202 H920" stroke="#3f3f46"/>
+<text x="520" y="184" fill="#fafafa" font-size="22" font-weight="700" font-family="Consolas, 'Cascadia Mono', ui-monospace, monospace">memory_entities</text>
+<text x="520" y="232" fill="#e4e4e7" font-size="19" font-family="Consolas, 'Cascadia Mono', ui-monospace, monospace">id</text>
+<text x="900" y="232" fill="#71717a" font-size="16" text-anchor="end">PK</text>
+<text x="520" y="270" fill="#e4e4e7" font-size="19" font-family="Consolas, 'Cascadia Mono', ui-monospace, monospace">series_id</text>
+<text x="900" y="270" fill="#71717a" font-size="16" text-anchor="end">FK series</text>
+<text x="520" y="308" fill="#e4e4e7" font-size="19" font-family="Consolas, 'Cascadia Mono', ui-monospace, monospace">kind</text>
+<text x="900" y="308" fill="#71717a" font-size="16" text-anchor="end">person | place | org | term | thing</text>
+<text x="520" y="346" fill="#e4e4e7" font-size="19" font-family="Consolas, 'Cascadia Mono', ui-monospace, monospace">canonical</text>
+<text x="900" y="346" fill="#71717a" font-size="16" text-anchor="end">display name</text>
+<text x="520" y="384" fill="#38bdf8" font-size="19" font-family="Consolas, 'Cascadia Mono', ui-monospace, monospace">first_volume</text>
+<text x="900" y="384" fill="#71717a" font-size="16" text-anchor="end">introduced in</text>
+<text x="520" y="422" fill="#e4e4e7" font-size="19" font-family="Consolas, 'Cascadia Mono', ui-monospace, monospace">created_at</text>
+<text x="900" y="422" fill="#71717a" font-size="16" text-anchor="end"></text>
+<rect x="40" y="450" width="420" height="290" rx="10" fill="#18181b" stroke="#3f3f46" stroke-width="1.5"/>
+<path d="M40,502 H460" stroke="#3f3f46"/>
+<text x="60" y="484" fill="#fafafa" font-size="22" font-weight="700" font-family="Consolas, 'Cascadia Mono', ui-monospace, monospace">memory_aliases</text>
+<text x="60" y="532" fill="#e4e4e7" font-size="19" font-family="Consolas, 'Cascadia Mono', ui-monospace, monospace">id</text>
+<text x="440" y="532" fill="#71717a" font-size="16" text-anchor="end">PK</text>
+<text x="60" y="570" fill="#e4e4e7" font-size="19" font-family="Consolas, 'Cascadia Mono', ui-monospace, monospace">entity_id</text>
+<text x="440" y="570" fill="#71717a" font-size="16" text-anchor="end">FK memory_entities</text>
+<text x="60" y="608" fill="#e4e4e7" font-size="19" font-family="Consolas, 'Cascadia Mono', ui-monospace, monospace">alias</text>
+<text x="440" y="608" fill="#71717a" font-size="16" text-anchor="end">as written</text>
+<text x="60" y="646" fill="#e4e4e7" font-size="19" font-family="Consolas, 'Cascadia Mono', ui-monospace, monospace">norm</text>
+<text x="440" y="646" fill="#71717a" font-size="16" text-anchor="end">indexed match key</text>
+<text x="60" y="684" fill="#38bdf8" font-size="19" font-family="Consolas, 'Cascadia Mono', ui-monospace, monospace">volume</text>
+<text x="440" y="684" fill="#71717a" font-size="16" text-anchor="end">seen in</text>
+<text x="60" y="722" fill="#e4e4e7" font-size="19" font-family="Consolas, 'Cascadia Mono', ui-monospace, monospace">script</text>
+<text x="440" y="722" fill="#71717a" font-size="16" text-anchor="end">ja | ko | zh | latn ...</text>
+<rect x="1000" y="150" width="360" height="366" rx="10" fill="#18181b" stroke="#3f3f46" stroke-width="1.5"/>
+<path d="M1000,202 H1360" stroke="#3f3f46"/>
+<text x="1020" y="184" fill="#fafafa" font-size="22" font-weight="700" font-family="Consolas, 'Cascadia Mono', ui-monospace, monospace">memory_edges</text>
+<text x="1020" y="232" fill="#e4e4e7" font-size="19" font-family="Consolas, 'Cascadia Mono', ui-monospace, monospace">id</text>
+<text x="1340" y="232" fill="#71717a" font-size="16" text-anchor="end">PK</text>
+<text x="1020" y="270" fill="#e4e4e7" font-size="19" font-family="Consolas, 'Cascadia Mono', ui-monospace, monospace">series_id</text>
+<text x="1340" y="270" fill="#71717a" font-size="16" text-anchor="end">FK series</text>
+<text x="1020" y="308" fill="#e4e4e7" font-size="19" font-family="Consolas, 'Cascadia Mono', ui-monospace, monospace">src_id</text>
+<text x="1340" y="308" fill="#71717a" font-size="16" text-anchor="end">FK memory_entities</text>
+<text x="1020" y="346" fill="#e4e4e7" font-size="19" font-family="Consolas, 'Cascadia Mono', ui-monospace, monospace">relation</text>
+<text x="1340" y="346" fill="#71717a" font-size="16" text-anchor="end">verb, e.g. serves</text>
+<text x="1020" y="384" fill="#e4e4e7" font-size="19" font-family="Consolas, 'Cascadia Mono', ui-monospace, monospace">dst_id</text>
+<text x="1340" y="384" fill="#71717a" font-size="16" text-anchor="end">FK memory_entities</text>
+<text x="1020" y="422" fill="#38bdf8" font-size="19" font-family="Consolas, 'Cascadia Mono', ui-monospace, monospace">established_volume</text>
+<text x="1340" y="422" fill="#71717a" font-size="16" text-anchor="end">proved in</text>
+<text x="1020" y="460" fill="#e4e4e7" font-size="19" font-family="Consolas, 'Cascadia Mono', ui-monospace, monospace">page_id</text>
+<text x="1340" y="460" fill="#71717a" font-size="16" text-anchor="end">null today</text>
+<text x="1020" y="498" fill="#e4e4e7" font-size="19" font-family="Consolas, 'Cascadia Mono', ui-monospace, monospace">created_at</text>
+<text x="1340" y="498" fill="#71717a" font-size="16" text-anchor="end"></text>
+<path d="M460,564 H480 V226 H500" fill="none" stroke="#a1a1aa" stroke-width="2"/>
+<path d="M500,264 H400 V226 H300" fill="none" stroke="#52525b" stroke-width="1.5" stroke-dasharray="5 4"/>
+<path d="M1000,302 H970 V226 H920" fill="none" stroke="#a1a1aa" stroke-width="2"/>
+<path d="M1000,378 H958 V238 H920" fill="none" stroke="#a1a1aa" stroke-width="2"/>
+<path d="M1000,264 H985 V128 H360 V226 H300" fill="none" stroke="#52525b" stroke-width="1.5" stroke-dasharray="5 4"/>
+<text x="540" y="580" fill="#fafafa" font-size="20" font-weight="600">One entity per thing</text>
+<text x="540" y="608" fill="#a1a1aa" font-size="18">a person, place, organisation or term in one series.</text>
+<text x="540" y="650" fill="#fafafa" font-size="20" font-weight="600">Many aliases per entity</text>
+<text x="540" y="678" fill="#a1a1aa" font-size="18">every surface form, matched on norm; no fuzzy work on a hit.</text>
+<text x="540" y="720" fill="#fafafa" font-size="20" font-weight="600">Edges point at entities, not names</text>
+<text x="540" y="748" fill="#a1a1aa" font-size="18">a new name for a known entity changes no edge.</text>
+<text x="540" y="790" fill="#38bdf8" font-size="20" font-weight="600">Three volume columns</text>
+<text x="540" y="818" fill="#a1a1aa" font-size="18">what makes a volume 3 view a strict subset of volume 12.</text>
+</svg>

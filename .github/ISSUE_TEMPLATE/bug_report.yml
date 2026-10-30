@@ -1,0 +1,41 @@
+name: Bug report
+description: Something does not work the way the docs say it should.
+labels: [bug]
+body:
+  - type: textarea
+    id: what
+    attributes:
+      label: What happened
+      description: What you did, what you expected, and what you got instead.
+    validations:
+      required: true
+  - type: textarea
+    id: repro
+    attributes:
+      label: How to reproduce
+      description: The smallest steps that show it. Say what kind of file you uploaded (scan archive, EPUB, PDF, ...), not the file itself.
+    validations:
+      required: true
+  - type: input
+    id: version
+    attributes:
+      label: Version
+      description: From `VERSION`, or the commit you are on.
+    validations:
+      required: true
+  - type: dropdown
+    id: engine
+    attributes:
+      label: Engine
+      options: [vision, ocr_text, text volume, not translation related]
+  - type: input
+    id: model
+    attributes:
+      label: Model and endpoint
+      description: For example `gemma4:31b` through Ollama Cloud. No API keys.
+  - type: textarea
+    id: logs
+    attributes:
+      label: Logs
+      description: Backend output around the failure. Remove keys and paths you do not want public.
+      render: text

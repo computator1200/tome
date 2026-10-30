@@ -1,0 +1,123 @@
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+  workflow_dispatch:
+  workflow_call:  # the release workflow runs the same checks before publishing
+
+# A new push supersedes an in-flight run on the same ref.
+concurrency:
+  group: ci-${{ github.ref }}
+  cancel-in-progress: true
+
+permissions:
+  contents: read
+
+jobs:
+  backend:
+    name: backend (py${{ matrix.python-version }})
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        python-version: ["3.11", "3.12"]
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: ${{ matrix.python-version }}
+          cache: pip
+          cache-dependency-path: backend/requirements.txt
+
+      - name: Install dependencies
+        # torch, torchvision and manga-ocr are the local-OCR stack: about 2 GB,
+        # imported lazily by the app, and irrelevant to every test here. Stripping
+        # them keeps the job at roughly a minute instead of ten.
+        run: |
+          python - <<'PY'
+          import re, pathlib
+          src = pathlib.Path("backend/requirements.txt").read_text().splitlines()
+          drop = re.compile(r"^\s*(torch|torchvision|manga-ocr)\b", re.I)
+          kept = [l for l in src if not drop.match(l)]
+          pathlib.Path("/tmp/requirements-ci.txt").write_text("\n".join(kept) + "\n")
+          print(f"installing {len(kept)} of {len(src)} lines")
+          PY
+          python -m pip install --upgrade pip
+          pip install -r /tmp/requirements-ci.txt pytest ruff
+
+      - name: Lint (syntax and undefined names)
+        run: ruff check backend --select E9,F63,F7,F82 --output-format=github
+
+      - name: Tests
+        working-directory: backend
+        run: python -m pytest tests -q
+
+  frontend:
+    name: frontend
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: frontend
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "22"
+          cache: npm
+          cache-dependency-path: frontend/package-lock.json
+
+      - name: Install
+        run: npm ci --no-audit --no-fund
+
+      - name: Lint
+        run: npm run lint
+
+      - name: Typecheck and build
+        # Same command the deploy uses, so a green run here means a buildable tree.
+        run: npm run build
+        env:
+          VITE_BASE: /tome/
+
+      - name: Upload build
+        uses: actions/upload-artifact@v4
+        with:
+          name: frontend-dist
+          path: frontend/dist
+          retention-days: 7
+          if-no-files-found: error
+
+  guards:
+    name: repository guards
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: No committed secrets or data
+        run: |
+          set -e
+          fail=0
+          for path in .env backend/data backend/storage frontend/node_modules frontend/dist; do
+            if git ls-files --error-unmatch "$path" >/dev/null 2>&1 || \
+               git ls-files "$path" | grep -q .; then
+              echo "::error::$path is tracked but must not be committed"
+              fail=1
+            fi
+          done
+          if git ls-files | grep -Eq '\.(db|sqlite|sqlite3)$'; then
+            echo "::error::a database file is tracked"
+            fail=1
+          fi
+          exit $fail
+
+      - name: Required files exist
+        run: |
+          for f in README.md LICENSE CONTRIBUTING.md backend/main.py backend/requirements.txt frontend/package.json; do
+            test -f "$f" || { echo "::error::missing $f"; exit 1; }
+          done
+          echo "layout ok"
