@@ -39,6 +39,27 @@ Tome has no login of its own; if the instance is reachable from the internet,
 put authentication in front of it at the proxy (for example Caddy's
 `forward_auth`).
 
+## Storage
+
+Page images live under `LOCAL_STORAGE_DIR` by default. To keep them in S3, or
+anything that speaks the S3 API (MinIO, Garage, Cloudflare R2), set:
+
+```ini
+STORAGE_BACKEND=s3
+S3_BUCKET=tome
+S3_ENDPOINT_URL=https://s3.example.com   # leave unset for AWS
+S3_REGION=eu-west-2
+S3_ACCESS_KEY_ID=...
+S3_SECRET_ACCESS_KEY=...
+S3_PREFIX=                               # optional folder inside the bucket
+```
+
+Without the key variables, boto3's own credential chain is used (environment,
+profile, instance role). Pages are still served through the app at `/files/`,
+so the bucket can stay private. Exports are cached on local disk, under
+`_exports/` in `LOCAL_STORAGE_DIR`, whichever backend holds the pages; deleting
+that folder only costs a rebuild on the next download.
+
 ## One backend process per SQLite database
 
 `DATABASE_URL` is a local SQLite file. Two uvicorn processes against it give

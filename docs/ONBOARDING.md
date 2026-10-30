@@ -20,8 +20,9 @@ series ──< volumes ──< pages ──< regions
   percentages, `japanese_text`, `english_text`, `confidence`.
 
 Regions are the atom: reader, PDF re-layout and page diffing read regions, never a
-string. Nothing writes the bbox columns yet, so the reader is a text panel, not an
-overlay - see [ROADMAP.md](ROADMAP.md#open).
+string. The vision model returns a box for each region; when every translated
+region on a page has one, the reader and the PDF set each translation over its
+source block, and otherwise the page is shown as one column.
 
 ## What runs where
 
@@ -97,10 +98,11 @@ graph: [GRAPH-MEMORY.md](GRAPH-MEMORY.md).
 
 Start here:
 
-1. `backend/db/models.py` - `GlossaryTerm` (`series_id`, `jp`, `en`, `kind`) and the three `memory_*` tables.
-2. `pipeline._glossary_list(series)` - how the glossary becomes a prompt list.
-3. `pipeline._merge_new_terms(session, series, new_terms)` - the write path, which hands the `memory` object to `memory.record_extraction`.
-4. `memory.build_context(...)`, `pipeline._previous_summaries(...)` and `llm._context_block(...)` - the cross-volume context, and where it renders.
+1. `backend/db/models.py` - `GlossaryTerm` (`jp`, `en`, `kind`, and the position it was first seen at) and the three `memory_*` tables.
+2. `pipeline._merge_new_terms(...)` - the write path: glossary terms, then the `memory` object to `memory.record_extraction`, stamped with the page's position.
+3. `pipeline._prompt_parts(...)` - the read path, once per model call: `memory.build_context` and `memory.glossary_for`, scoped to the page.
+4. `memory.render_context(...)` and `llm._context_block(...)` - how that becomes the prompt.
+5. `backend/tests/test_memory_review.py` - one test per rule; read it before changing one.
 
 ### Translation path and provider
 
@@ -154,7 +156,7 @@ to `VITE_API_TARGET` (default :8000; export :8077 to match the backend above).
 Tests, the same commands CI runs:
 
 ```bash
-cd backend && python -m pytest tests -q     # api contract, ingest, language, metadata
+cd backend && python -m pytest tests -q     # pipeline, memory, export, quality, agent, API, ingest
 ruff check backend --select E9,F63,F7,F82   # from the repo root
 cd frontend && npm run lint && npm run build
 ```
@@ -172,19 +174,21 @@ store at `backend/storage/` (`LOCAL_STORAGE_DIR`); ingest staging is
 
 ```mermaid
 flowchart LR
-    subgraph S["series memory"]
+    subgraph S["series memory, as of this page"]
         T["GlossaryTerm jp / en / kind"]
+        GR["graph: names, renderings, relations"]
         SM["previous volume summaries"]
-        G["bounded glossary for one page"]
+        G["_prompt_parts: names on the page first"]
         T --> G
+        GR --> G
         SM --> G
     end
     G --> C["llm._context_block"]
-    C --> PR["prompt: these renderings are FIXED"]
-    PR --> M["translation call"]
+    C --> M["translation call"]
     M --> R["regions returned"]
-    R --> NEW["new terms seen on the page"]
+    R --> NEW["new terms and memory, stamped with the page"]
     NEW --> T
+    NEW --> GR
 ```
 
 A name fixed on page 1 is still that name on page 400; what page 400 adds is available to 401.

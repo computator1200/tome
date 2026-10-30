@@ -1,20 +1,21 @@
 # Graph memory
 
 Tome keeps a graph per series of who and what appears in the books, the names
-each of them goes by, and how they relate. Each relation records the volume that
-established it. The graph is written as a side effect of translation and read
-back into every prompt, scoped to the volume being translated.
+each of them goes by, how the translation renders them, and how they relate.
+Every name and relation records the position (volume and page) where it was
+first seen. The graph is written as a side effect of translation and read back
+into every prompt, scoped to the page being translated.
 
 The code is `backend/services/memory.py`, the tables are in
-`backend/db/models.py`, the write hook is `_merge_new_terms()` in
-`backend/services/pipeline.py`, and the HTTP view is `series_memory()` in
-`backend/routers/series.py`. This page describes what the code does today.
+`backend/db/models.py`, the write hook is `_merge_new_terms()` and the per-call
+read is `_prompt_parts()`, both in `backend/services/pipeline.py`, and the HTTP
+views are in `backend/routers/series.py`. The tests are
+`backend/tests/test_memory.py` and `test_memory_review.py`, one test for each
+behaviour described below. This page describes what the code does today.
 
-Across the library the graph currently holds 5,174 entities, 5,417 aliases and
-572 typed relations. In an 18-volume series, a volume 1 prompt sees 22 entities
-and 16 relations; the same series at volume 18 sees 80 and 60, the caps.
-Separately, all 57,149 regions (9,207 translated) are indexed in a
-SQLite FTS5 table (`region_fts`) for full-text search over the translated text.
+On the development library the graph held 5,174 entities, 5,417 aliases and 572
+typed relations in October 2026. Separately, all 57,149 regions are indexed in
+an SQLite FTS5 table (`region_fts`) for full-text search over the text.
 
 ## 1. The problem
 
@@ -43,21 +44,21 @@ and no way to say that she serves 灰の教団. A volume 7 page that only says
 There is a second failure that a glossary cannot see at all: telling the
 reader too much. If the model is given a fact from volume 12 while translating
 volume 3, it can leak into the wording. The graph exists to carry what is known,
-and only what is known by the volume in hand.
+and only what is known by the page in hand.
 
 ## 2. Three tables
 
-![The three graph tables and their joins. Volume columns are highlighted.](images/graph-memory-schema.png)
+![The three graph tables and their joins. Position columns are highlighted.](images/graph-memory-schema.png)
 
-*Look at the three blue columns: `first_volume`, `volume` and
-`established_volume`. Every read is filtered on one of them. The solid lines are
-the joins to `memory_entities.id`; the dashed lines are the per-series keys.*
+*Look at the three blue columns: where an entity, an alias and an edge were
+first seen. Every read is filtered on them. The solid lines are the joins to
+`memory_entities.id`; the dashed lines are the per-series keys.*
 
 | Table | One row is | Key columns |
 |---|---|---|
-| `memory_entities` | a person, place, organisation, term or thing in one series | `series_id`, `kind`, `canonical`, `first_volume` |
-| `memory_aliases` | one surface form of an entity | `entity_id`, `alias`, `norm` (indexed), `volume`, `script` |
-| `memory_edges` | one typed relation between two entities | `series_id`, `src_id`, `relation`, `dst_id`, `established_volume`, `page_id` |
+| `memory_entities` | a person, place, organisation, term or thing in one series | `series_id`, `kind`, `canonical`, `first_volume`, `first_page`, `rendering` |
+| `memory_aliases` | one surface form of an entity | `entity_id`, `alias`, `norm` (indexed), `volume`, `page`, `script` |
+| `memory_edges` | one typed relation between two entities | `series_id`, `src_id`, `relation`, `dst_id`, `established_volume`, `established_page`, `page_id` |
 
 Why three and not one:
 
@@ -65,15 +66,18 @@ Why three and not one:
   Four names point at one row. Lookups go through `memory_aliases.norm`, an
   indexed exact match, so the common case costs one query and no fuzzy work.
 - **Edges are separate from entities** because a relation has its own facts: a
-  type and the volume that proves it. Edges hold entity ids, not names, so a new
-  alias for a known entity changes no edge.
-- **Each table carries a volume.** That is what lets the read path return a
-  strict subset of the graph for an earlier volume.
+  type and the position that states it. Edges hold entity ids, not names, so a
+  new alias for a known entity changes no edge.
+- **Each table carries a position.** That is what lets the read path return a
+  strict subset of the graph for an earlier page.
 
-All three live in the same SQLite file as the rest of Tome. Deleting a series
+`rendering` is how the translation renders the entity's name, taken from the
+`new_terms` the model returns. The glossary (`glossary_terms`) carries a
+position too (`first_volume`, `first_page`), so it is scoped the same way.
+
+All of it lives in the same SQLite file as the rest of Tome. Deleting a series
 cascades to its entities and edges, and deleting an entity cascades to its
-aliases and edges. `page_id` exists on `memory_edges` but the pipeline passes
-`None` today, so edges record the volume, not the page.
+aliases and edges.
 
 ## 3. The write path
 
@@ -92,29 +96,46 @@ for a `memory` object in the same JSON response as the translation:
 
 ```json
 "memory": {
-  "entities": [{"name": "リゼット", "kind": "person", "aliases": ["リズ"]}],
+  "entities": [{"name": "リゼット", "kind": "person", "aliases": ["リズ", "灰の聖女"]}],
   "relations": [{"src": "リゼット", "relation": "serves", "dst": "灰の教団"}]
 }
 ```
 
-After each page or batch, the pipeline calls `_merge_new_terms()`, which first
-adds any `new_terms` to `glossary_terms` and then passes the `memory` object to
-`memory.record_extraction()` with the volume's `order`. The graph therefore
-costs no extra model calls. The call is wrapped in a `try`: on any error the
-session is rolled back and the pipeline logs `memory extraction skipped`.
-Memory never fails a translation.
+An alias is any other way the text refers to the entity: a short name, a
+nickname, or a title or description, listed only when the text makes clear it
+is the same entity. That is how 灰の聖女 joins リゼット: not by string
+similarity, which could never link them, but because a page used both for her.
 
-`record_extraction()` reads at most 40 entities, 6 aliases per entity and 40
-relations from one response.
+After each page, the pipeline calls `_merge_new_terms()` with the page's
+position. It adds `new_terms` to `glossary_terms` (or moves an existing term's
+first sighting earlier), then passes the `memory` object to
+`memory.record_extraction()` and the renderings to `record_renderings()`. A
+batch of pages is stamped with its last page, so no page in the batch sees what
+a later one established. The memory write runs in its own database session: a
+malformed payload rolls back only itself, never the translated page, and the
+pipeline logs `memory extraction skipped`. The graph costs no extra model calls.
+
+`record_extraction()` reads at most 40 entities, 8 aliases per entity and 40
+relations from one response, and ignores anything that is not the right shape.
 
 ### Resolving a name
 
-`resolve_or_create()` turns a surface form into an entity, in this order:
+`resolve_or_create()` turns a surface form into an entity, in this order. The
+rules follow the character name clustering of Vala et al. ("Mr. Bennet, his
+coachman, and the Archbishop walk into a bar", EMNLP 2015): merge only on
+evidence, never between names that appear side by side, and drop a short name
+that fits more than one character rather than guess.
 
-1. **Normalise.** `norm()` applies NFKC, casefolds, strips trailing honorifics
-   (さん, 様, 君, ちゃん, 先生, 씨, 님, -san, -sama and others) and edge
-   punctuation, and collapses whitespace. Names on the stop list (僕, 私, 俺,
-   I, he, she and similar) are not entities and return nothing.
+1. **Normalise.** `norm()` applies NFKC and casefolds; strips quotes and edge
+   punctuation; unifies name separators (`＝`, `·`, `･` become `・`); removes
+   spaces inside CJK names (九条 櫻子 is 九条櫻子); reads 一 or a dash inside
+   katakana as ー; folds variant kanji that name the same person (髙 and 高, 﨑
+   and 崎, 齋 and 斎) and the Persian and Arabic forms of ی and ک; and strips
+   one trailing honorific (さん, 様, 君, 殿下, 嬢, 씨, -san and others), but
+   only if what is left is still a name. 神様 (god) and 神殿 (temple) both end
+   in an honorific character, and stripping either would leave 神 and merge
+   them. Pronouns and kinship words (僕, 私, 母さん, お兄ちゃん, I, she) are not
+   entities.
 2. **Exact alias.** Look up `memory_aliases.norm` within the series. This is
    the usual case.
 3. **Fuzzy match.** Only within the same series, the same `kind` and the same
@@ -122,54 +143,66 @@ relations from one response.
    purpose: at 0.6, "Aria" and "Ariane" merge, and merging two characters is
    worse than keeping a duplicate. Latin names shorter than four characters
    are never fuzzy-matched.
-4. **CJK short form.** In Japanese, Korean or Chinese script only, a form of
-   two or more characters that is a prefix (family name, 館脇 for 館脇正太郎) or
-   a suffix (given name, 櫻子 for 九条櫻子) of a known name, at most six
-   characters shorter, is the same entity. In the example above, リゼット
-   resolves to リゼット・アルノー this way. In Latin script a prefix proves
-   nothing, so the rule does not apply.
-5. **Create.** Otherwise a new entity is created with `first_volume` set to the
-   current volume.
+4. **Short form.** For people only, a name that is a shorter way of writing a
+   known one resolves to it, and only if exactly one person fits:
+   - with a separator (リゼット・アルノー), the short form must be one whole
+     part (リゼット or アルノー), never a prefix of a part;
+   - in kanji, a family name (館脇 of 館脇正太郎) or given name (櫻子 of
+     九条櫻子), at least two characters and at most four shorter;
+   - in hangul, the given name without a one-syllable family name;
+   - katakana without a separator never: アリア is not アリアンヌ.
 
-Whichever step wins, the surface form is added as an alias if its `norm` is not
-already known for that entity, and `first_volume` is lowered if the current
-volume is earlier. Aliases the model lists for an entity go through the same
-chain. That is how リズ joins リゼット: not by string similarity, which would
-fail, but because the model saw both on one page and listed one as an alias of
-the other.
+   A longer name never resolves to a shorter one, so 九条総司 arriving after
+   九条 does not join it. When a short form fits two people (九条 for 九条櫻子
+   and 九条総司), the mention is not recorded at all.
+5. **Create.** Otherwise a new entity is created at the current position.
+
+Steps 3 and 4 skip any entity already claimed by a different name on the same
+page: two names that appear side by side are two entities, so a sibling edge
+between 館脇 and 館脇正太郎 survives instead of being dropped as a self-loop.
+
+Whichever step wins, the surface form is added as an alias if its `norm` is new
+for that entity, and its first sighting moves earlier if the current position is
+earlier. Aliases the model lists attach to their entity directly. If a listed
+alias already belongs to a different entity created on the same page, the two
+are merged; if it belongs to an older entity, the conflict is logged and left
+for a person to settle (section 5).
+
+Relation endpoints resolve against the names on the same page first, so
+`{"src": "リゼット"}` finds the リゼット・アルノー listed beside it instead of
+creating a new entity. An endpoint that is not on the page goes through the same
+chain; if it is new it is created as a `term`, and its kind is upgraded the
+first time the model says what it is.
 
 ### The relation vocabulary
 
-Relations are meant to come from a closed list of 19 verbs, so that the graph
-stays queryable: `serves`, `works_for`, `member_of`, `sibling_of`, `parent_of`,
-`child_of`, `married_to`, `lives_in`, `born_in`, `located_in`, `owns`, `knows`,
-`leads`, `attends`, `teaches`, `friend_of`, `rival_of`, `kills`, `betrays`.
-Three things hold it in place:
+Relations come from a closed list of 19 verbs, so the graph stays queryable:
+`serves`, `works_for`, `member_of`, `sibling_of`, `parent_of`, `child_of`,
+`married_to`, `lives_in`, `born_in`, `located_in`, `owns`, `knows`, `leads`,
+`attends`, `teaches`, `friend_of`, `rival_of`, `kills`, `betrays`. Four things
+hold it in place:
 
-- the translate prompt names the allowed verbs;
-- `clean_relation()` converts the verb to snake_case and folds known synonyms
-  onto the list (`sister_of` becomes `sibling_of`, `resides_in` becomes
-  `lives_in`, `employed_by` becomes `works_for`);
+- both translate prompts list exactly these verbs (a test checks the prompt
+  against the code);
+- `clean_relation()` converts the verb to snake_case, folds known synonyms onto
+  the list (`sister_of` becomes `sibling_of`, `resides_in` becomes `lives_in`),
+  and drops anything else;
 - `relation_allowed()` checks the kinds at each end against `_RELATION_TYPES`.
   `member_of` must point from a person to an org; `lives_in` from a person to a
   place. A known contradiction is dropped. An end whose kind is still the
-  fallback `term` cannot be judged and passes.
+  fallback `term` cannot be judged and passes;
+- symmetric relations (`sibling_of`, `married_to`, `friend_of`, `rival_of`,
+  `knows`) are stored once, whichever way round they were stated.
 
 A relation from an entity to itself is dropped.
 
 ### Re-runs
 
 Re-translating a volume does not duplicate the graph. Names resolve to the same
-entities through the exact alias lookup. Before inserting an edge,
-`record_extraction()` looks for one with the same series, `src_id`, `relation`
-and `dst_id`; if it exists, nothing is added, and if the existing edge was
-recorded at a later volume its `established_volume` is lowered to the current
-one. Restating a fact later never makes it visible earlier than the first volume
-that established it.
-
-A re-run only adds. Nothing in the write path deletes an entity, an alias or an
-edge, so a wrong merge or a wrong edge stays until it is removed in the
-database.
+entities through the exact alias lookup, and an edge that already exists is not
+added again. If a fact is restated at an earlier position, its position moves
+earlier; restating it later never makes it visible earlier than the first page
+that established it. A re-run only adds: nothing in the write path deletes.
 
 ## 4. The read path
 
@@ -180,51 +213,112 @@ outside the box and never reaches the query result. Then follow the two outputs
 of `build_context()`: the API response on the right, and the prompt block at the
 bottom.*
 
-`build_context(series_id, N)` runs two queries and nothing else:
-
-- entities with `first_volume <= N`, ordered by `first_volume` then
-  `canonical`, limited to 80;
-- edges with `established_volume <= N`, ordered by `established_volume`,
-  limited to 60, with both ends looked up by id.
+`build_context(series_id, N, page, texts)` runs two queries and nothing else:
+the aliases first seen at or before (N, page), joined to their entities, and the
+edges established at or before it. An entity is visible if one of its names is,
+and it is shown only under the names a reader at that point has met: the first
+form seen is its name, and later forms are listed as "also". A title the story
+reveals in volume 12 is not in a volume 3 prompt, even though it belongs to the
+same entity.
 
 There is no model call on the read path. It is SQL against the same SQLite file.
 
-**Why a relation is only visible at or after its volume.** The filter is the
-reader's position, not the latest state of the series. An edge established in
-volume 12 has `established_volume = 12`; a query for volume 3 does not return
-it, so it is not in the string sent to the model. The model cannot leak a fact
-that was never in its prompt. `backend/tests/test_memory.py` checks this
-directly by writing a volume 2 and a volume 12 relation and comparing the
-volume 3 and volume 12 views.
+**Why a fact is only visible from where it was stated.** The filter is the
+reader's position, not the latest state of the series. An edge stated on page
+41 of volume 12 is not returned for any page of volumes 1 to 11, nor for pages 1
+to 40 of volume 12, so it is not in the string sent to the model. The model
+cannot leak a fact that was never in its prompt. That holds on a re-run too:
+re-translating volume 3 does not show page 1 what page 41 established.
 
-**Where it is used.** At the start of each volume run, `process_volume()` builds
-the context for `volume.order`, and `render_context()` turns it into the block
-shown in the diagram. The block lists up to 24 names per kind and up to 40
-relations, and `llm._context_block()` places it before the glossary in every
-translate prompt for that volume. It is built once per volume run, so entities
-found on page 50 of a volume reach the prompt on the next run, not on page 51.
+**What gets in.** The pipeline calls this once per model call, through
+`_prompt_parts()`, with the position of the page (or the first page of a batch)
+and, when it has it, the source text about to be translated. Following DelTA
+(Wang et al., ICLR 2025), whose proper-noun records put the names that occur in
+the current text into the prompt with their first translation:
 
-**The endpoint.** `GET /api/series/{id}/memory` returns the same view. Without
-`volume` it is scoped to the series' latest volume; with `?volume=N` it is
-scoped exactly as the prompt for volume N would be. A `volume` larger than the
-series has is a 400, not a silent "everything". The response is:
+- names that occur in the text come first, and are never cut;
+- the most connected other names fill the remaining room (40 in all), because
+  a page often refers to people it does not name;
+- relations between the names in the text come first, then those touching
+  them (40 in all).
+
+On the vision path the model reads the page and translates it in one call, so
+the text is not known in advance; there the block is the 40 most connected
+names. `render_context()` writes each name with its rendering and other forms,
+and `llm._context_block()` places the block before the glossary:
+
+```
+What is known by volume 3, page 12 (do not reveal anything beyond it):
+Names (source -> rendering; other forms):
+- [person] リゼット -> Lizette; also リズ
+- [org] 灰の教団 -> Order of Ash
+Relations:
+- リゼット serves 灰の教団 (vol 2)
+```
+
+**The glossary.** `glossary_for()` applies the same horizon to the flat
+glossary: only terms first seen at or before the position are eligible. Terms
+that occur in the text come first and are never cut; the rest fill the room up
+to 200, characters before terms and recent before old.
+
+**The endpoint.** `GET /api/series/{id}/memory` returns the same view without a
+text, for the series page. Without `volume` it is scoped to the series' latest
+volume; with `?volume=N` it is scoped as a prompt for volume N would be. A
+`volume` larger than the series has is a 400, not a silent "everything":
 
 ```json
 {
   "stats": {"entities": 412, "edges": 61, "aliases": 430},
   "scoped_to_volume": 3,
-  "entities": [{"name": "九条櫻子", "kind": "person", "volume": 1}],
-  "edges": [{"src": "館脇正太郎", "relation": "knows", "dst": "九条櫻子", "volume": 1}],
+  "entities": [{"id": "…", "name": "リゼット", "kind": "person", "volume": 1, "page": 0,
+                "aliases": ["リズ"], "rendering": "Lizette"}],
+  "edges": [{"id": "…", "src": "リゼット", "relation": "serves", "dst": "灰の教団",
+             "volume": 2, "page": 14}],
   "truncated": {"entities": true, "edges": true}
 }
 ```
 
 (Values illustrative.) `stats` counts the whole series, unscoped. `truncated`
-is true when the response holds fewer rows than `stats`: either the 80 entity
-or 60 edge cap was hit, or the volume scope hid later rows. Either way it tells
-a caller that it is looking at part of the graph, not all of it.
+is true when the response holds fewer rows than `stats`: either a cap (80
+entities, 60 edges) was hit, or the scope hid later rows.
 
-## 5. Why a graph and not a glossary
+## 5. Keeping it right
+
+**Positions that move.** Every row is stamped with a volume's order, so when the
+volumes of a series are reordered (`reorder_volumes`, which the librarian can
+call), `renumber_volumes()` moves every alias, edge and glossary term with its
+volume. A volume translated first and then moved to position 12 does not spoil
+volumes 1 to 11.
+
+**Rows from before positions existed.** `ensure_positions()` runs before each
+volume is processed and before the memory view is served. It dates a glossary
+term or alias by the first page whose text contains it. A glossary term found
+nowhere is hidden until a translation sees it; an alias found nowhere keeps its
+volume and moves to the end of it, and so does an edge whose page is unknown.
+Unknowns always err on the side of telling the model less. When `norm()`
+changes, `upgrade_norms()` re-keys the stored aliases once, at startup.
+
+**Corrections.** Extraction is a model's reading of the page, so the graph can
+be wrong. The series page has a memory panel that lists every entity with all
+its names, and the API behind it lets a person:
+
+| Fix | Endpoint |
+|---|---|
+| merge two entries that are one person or thing | `POST /api/series/{id}/memory/merge` |
+| split off a name that was merged by mistake | `POST /api/series/{id}/memory/aliases/{alias_id}/split` |
+| delete an entity, with its names and relations | `DELETE /api/series/{id}/memory/entities/{entity_id}` |
+| delete one relation | `DELETE /api/series/{id}/memory/edges/{edge_id}` |
+
+A merge keeps the earlier position of the two, and duplicate names and edges
+collapse. The librarian can read the graph through its `get_memory` tool, so
+"who is リズ?" in the series chat is answered from it.
+
+**Series that predate the graph.** `seed_from_glossary()` gives every glossary
+term an entity at the term's own position, with its rendering attached, so an
+old series is not empty. Its relations come from translation: re-translating a
+volume writes its part of the graph page by page.
+
+## 6. Why a graph and not a glossary
 
 A glossary is a list of pairs: this word in the source, that word in English.
 It answers one question, "what do we call this?", and it answers it well. Tome
@@ -236,9 +330,9 @@ cannot say how two people are connected, because a row has no second end. And
 it cannot say when something became true, because a row has no time.
 
 The graph adds exactly those three things: aliases join names to one person,
-edges join people to each other, and every row carries the volume it came from.
-That last part is what lets Tome hand the model everything the reader already
-knows and nothing they do not.
+edges join people to each other, and every row carries the position it came
+from. That last part is what lets Tome hand the model everything the reader
+already knows and nothing they do not.
 
 A vector memory store was considered and rejected. Recall there is top-k by
 similarity, costs around a second and a half per call, and needs a model call on
@@ -248,28 +342,21 @@ of every name on the page, and a hard guarantee that a volume 12 relation is not
 in a volume 3 prompt. Three tables and a filter give that guarantee; a vector
 index gives an approximation of it.
 
-## 6. What it does not do yet
+## 7. Design choices
 
-- **No coreference without a name.** The graph merges names, not references. If
-  volume 5 calls her "the girl from the cathedral" and never pairs that with a
-  name on the same page, nothing links them. 灰の聖女 only joins リゼット if the
-  model lists it as her alias on some page.
-- **No cross-series entity linking.** Every lookup is scoped by `series_id`.
-  The same historical figure in two series is two unrelated entities.
-- **Extraction quality is the model's.** The graph stores what the model read
-  on the page. Relation direction is sometimes reversed, and the kind check
-  removes nonsense, not subtlety.
-- **The vocabulary is enforced loosely at the edges.** The prompt lists 17 of
-  the 19 verbs (`kills` and `betrays` are accepted but not offered), and
-  `clean_relation()` keeps a verb that is neither on the list nor a known
-  synonym, snake_cased and cut to 40 characters, rather than dropping it.
-- **Caps, oldest first.** The 80 entity and 60 edge limits are taken from the
-  earliest volumes, so in a long series the newest entities are the ones left
-  out of the prompt.
-- **No page provenance.** `page_id` is not filled in, so an edge can be traced
-  to its volume but not to the page that stated it.
-- **No merge or delete UI.** A wrong merge has to be fixed in the database.
-- **Backfill was one pass.** Series translated before the graph existed were
-  seeded from their glossary (`seed_from_glossary()`) and one model read per
-  volume, sampled rather than complete. Only runs since then write the graph
-  live, page by page.
+These are deliberate, and each has a reason:
+
+- **One graph per series.** Every lookup is scoped by `series_id`. Two series
+  that share a name usually mean two different people, and linking across them
+  would let one book's facts reach another's prompts.
+- **The model reads; the code decides.** The graph stores what the model read
+  on the page, and the code only accepts it in the closed vocabulary, with the
+  right kinds at each end, under the merge rules above. Relation direction is
+  the model's judgement; when it is wrong, the memory panel fixes it.
+- **A description joins a name only on the page's evidence.** "The girl from
+  the cathedral" becomes リゼット's alias when a page uses both for her, which is
+  the only evidence that is not a guess. A description never paired with a name
+  stays its own entry until a page pairs them or a person merges them.
+- **Uncertain means hidden.** A short name that fits two people is not
+  recorded, a term never seen in the text is not shown, and a fact of unknown
+  page is shown only from the end of its volume.

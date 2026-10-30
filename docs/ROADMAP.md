@@ -1,43 +1,77 @@
 # Roadmap
 
 This started as the plan for making Tome translate a *series* rather than a page.
-Most of that plan is now built, so this file records what shipped and what is
-still open. The shipped items cite the code that proves them; the open ones are
-work, not aspirations.
+All of that plan is built. This file records what shipped, with the code that
+does it, and the choices that were made on purpose; [CHANGELOG.md](../CHANGELOG.md)
+has the same work by release.
 
 ## Shipped
 
 ### Series memory as a graph
 
-- **Extract** per volume: characters, places, recurring terms, honorifics, and the
-  source-language form of each (`pipeline.py`, `_merge_new_terms`).
-- **Resolve** aliases onto one node, with a short-form guard so "Al" does not
-  swallow "Alcazar" (`services/memory.py`).
-- **Store** typed relations from a closed vocabulary, each stamped with the volume
-  that established it (`memory_edges`).
-- **Retrieve** at translation time: a prompt for volume N carries only what was
-  established up to volume N (`memory.py:343-344`, `pipeline.py:222-225`).
-- **Write back** so volume N+1 starts from what N learned.
+- **Extract** with every page, in the same model call as the translation:
+  characters, places, organisations and terms, the other names each goes by
+  (titles and descriptions included), and typed relations from a closed
+  vocabulary (`pipeline._merge_new_terms`, `memory.record_extraction`).
+- **Resolve** names onto one entity on evidence only: an exact alias, a close
+  spelling, or a short form that fits exactly one person; never two names that
+  appear on the same page (`memory.resolve_or_create`).
+- **Scope** every name, relation and glossary term to the page where it was
+  first seen, so no prompt sees anything from a later page or volume, re-runs
+  and reordered volumes included (`memory.build_context`, `memory.glossary_for`,
+  `memory.renumber_volumes`).
+- **Retrieve** per model call: the names in the text first, with their
+  renderings, then the most connected others (`pipeline._prompt_parts`).
+- **Correct** it by hand: merge, split and delete from the series page
+  (`MemoryPanel.tsx`, `/api/series/{id}/memory/...`).
+
+How all of it works, with diagrams: [GRAPH-MEMORY.md](GRAPH-MEMORY.md).
 
 ### The librarian
 
 26 tools across two toolsets. It inspects uploads, samples pages, links metadata,
 creates volumes, searches the web, fetches a publisher page, sets a poster, reads
-the library, and repairs it:
+the library and its memory, and repairs it:
 
 - `reorder_volumes` when a collection was sorted by title instead of by content;
 - `repair_volume_pages` when a book arrived as a single endless page;
 - `convert_pdf_to_scans` when a PDF has no Unicode text layer at all;
-- `delete_volume`, gated behind `ask_user` because it is the one irreversible act.
+- `delete_volume`, which refuses to run until the user has said yes to a
+  question naming the volume, because it is the one irreversible act.
 
 The series chat prompt carries the repair playbook, so "the order is wrong" gets
 an action rather than an explanation.
 
-### Vision engine as the primary path
+### Pages, laid out
 
-One model call per page: image in, translated regions out (`pipeline.py:324`).
-The OCR-then-translate path still exists for text-layer PDFs, which is what makes
-the digital ingest route cheap.
+- **Vision first.** One model call per page: image in, translated regions with
+  their boxes out (`pipeline._run_vision`). The OCR-then-translate path remains
+  for scans that need it and for text-layer PDFs.
+- **Boxes.** The reader and the PDF set each translation over its source block
+  when a page's regions all have boxes, and as one column when they do not.
+  Pages translated before boxes existed get them when re-translated.
+- **Isolation.** One bad page costs one page on every path, failures are
+  counted wherever they happen, and Resume retries only what failed.
+
+### Quality and cost
+
+- **Consistency report** per volume: which glossary terms the translation
+  rendered differently, on which pages, and which terms the volume introduced
+  (`quality.glossary_report`).
+- **Regression sample**: re-translate a fixed sample with the current model and
+  prompts, without saving, and score it against what is stored
+  (`scripts/regression_sample.py`).
+- **Cost and latency per volume**: model calls, tokens and time on every volume,
+  with an estimated cost once prices are set (`llm.track_usage`).
+
+### Throughput and storage
+
+- **Several volumes at once**, never two of the same series
+  (`worker._dispatch`).
+- **Exports** built once per state of the translation, cached on disk and
+  streamed from the file (`routers/export._cached`).
+- **Local disk or S3** (or MinIO, Garage, R2) for page images
+  (`storage_backend/`).
 
 ### Generality
 
@@ -51,31 +85,17 @@ only cover one community's catalogue.
 
 Source language is detected rather than assumed (`services/language.py`).
 
-## Open
+## Choices made on purpose
 
-- **Quality gates.** A glossary diff between consecutive volumes to catch drift;
-  a fixed sample re-translated and diffed as a regression test; cost and latency
-  per volume, because a series is hundreds of pages.
-- **Per-page memory retrieval.** The memory block is currently per volume; the
-  page being translated does not narrow it further. It is capped at 80 entities
-  and 60 edges, oldest first, and is only as good as the model's extraction:
-  relation direction is sometimes wrong, and edges do not yet record the page
-  that established them. See [GRAPH-MEMORY.md](GRAPH-MEMORY.md#6-what-it-does-not-do-yet).
-- **Bounding boxes.** `regions` has `x`, `y`, `width`, `height` as percentages of
-  the page and the writer stores whatever the model returns, but every one of the
-  57,149 regions in the current database is `0,0,0,0`. The reader and the PDF
-  therefore place text in reading order, not at a position. Making it spatial
-  means changing the vision prompt and re-running the affected volumes.
-- **Text volumes export as reflowed text, not facsimiles.** PDF export renders
-  scan pages from their stored images; a text volume has no images, so its PDF is
-  typeset from the translated text, one page per chapter. In the reader, chapters
-  are a text column, not a laid-out page: fine for a novel, not a facsimile.
-- **Isolation on the local-OCR path.** Resume is real, and on the vision path one
-  failed page fails alone. On the local-OCR path, if one response in a batch of
-  five fails, the other four pages fail with it. See
-  [ARCHITECTURE.md](ARCHITECTURE.md#isolation-what-one-failure-takes-down).
-- **One volume at a time.** No batching across volumes or series.
-- **Streamed export.** PDF and EPUB are built in memory before the first byte is
-  sent, which is slow for a 300-page scan.
-- **Local OCR.** `manga-ocr` plus torch is not installed on the deployment, so the
-  OCR path is hidden behind `capabilities.local_ocr: false`.
+- **A digital book is text, not a facsimile.** A text volume has no page images,
+  so its PDF is typeset from the translation, one chapter per page, and an EPUB
+  repacks the original book with the text swapped. Scans export as pictures of
+  the original with the translation set on them.
+- **Local OCR is optional.** `manga-ocr` and torch are a 2 GB install, imported
+  only when used. Without them the OCR path uses a vision model to read pages,
+  and the Settings page offers local OCR only when it is installed.
+- **One graph per series.** Two series that share a name usually mean two
+  people, so no fact crosses from one series to another.
+- **The model reads; the code decides.** Extraction is the model's reading of
+  the page. The code accepts it only within the vocabulary, the kind rules and
+  the merge rules, and anything still wrong is fixed in the memory panel.

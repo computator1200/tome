@@ -29,6 +29,8 @@ numpy
 
 # Visual PDF export (overlay composited onto the scans)
 fpdf2
+# Object store when STORAGE_BACKEND=s3 (AWS S3, MinIO, Garage, R2)
+boto3
 
 # Local OCR path (ocr_text engine). Heavy (torch); imported lazily so the app
 # still boots without them (the vision engine doesn't need them). On Python

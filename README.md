@@ -12,7 +12,7 @@ A translator reads a series, not a page. Tome is built the same way.
 [![Python 3.11+](https://img.shields.io/badge/python-3.11%2B-fafafa?style=flat-square&labelColor=09090b)](https://www.python.org/)
 [![FastAPI](https://img.shields.io/badge/FastAPI-async-fafafa?style=flat-square&labelColor=09090b)](https://fastapi.tiangolo.com/)
 [![React](https://img.shields.io/badge/React-19-fafafa?style=flat-square&labelColor=09090b)](https://react.dev/)
-[![Tests](https://img.shields.io/badge/tests-40%20passing-fafafa?style=flat-square&labelColor=09090b)](CONTRIBUTING.md#tests)
+[![Tests](https://img.shields.io/badge/tests-112%20passing-fafafa?style=flat-square&labelColor=09090b)](CONTRIBUTING.md#tests)
 [![PRs welcome](https://img.shields.io/badge/PRs-welcome-fafafa?style=flat-square&labelColor=09090b)](#contributing)
 [![Stars](https://img.shields.io/github/stars/computator1200/tome?style=flat-square&labelColor=09090b&color=fafafa)](https://github.com/computator1200/tome/stargazers)
 [![Release](https://img.shields.io/github/v/release/computator1200/tome?style=flat-square&labelColor=09090b&color=fafafa)](https://github.com/computator1200/tome/releases)
@@ -49,10 +49,16 @@ carry a cast of characters across the whole run.
 - **📚 Library** - series, volumes, reading progress, per-series settings.
 - **📥 Ingest** - drop an archive of scans or a digital book; the format is read
   from magic bytes, not the file extension.
-- **🔍 Translate** - a **vision** path (page image in, translated regions out) and
-  a **local OCR** path that extracts text first.
+- **🔍 Translate** - a **vision** path (page image in, translated regions and
+  their positions out) and an **OCR** path that extracts text first.
 - **🗂 Metadata** - title search across keyless book catalogues in any language.
-- **📖 Reader** - the translation alongside the original, page by page.
+- **📖 Reader** - each translation set over the block it replaces, or as a
+  column beside the original; PDF export does the same.
+- **🧠 Series memory** - the characters, places and relations seen so far, with
+  how each name is rendered, given to every page and limited to what was known
+  by that page. Correct it from the series page.
+- **📊 Consistency and cost** - per volume: which names drifted from the
+  glossary and where, and what the volume cost in calls, tokens and money.
 - **🗃 Whole series, one click** - `Process all` queues every unfinished volume in
   reading order.
 - **🤖 Librarian** - an agent with 26 tools over the library that organises
@@ -72,8 +78,9 @@ carry a cast of characters across the whole run.
 Every page goes through one model call that carries the series context: the
 glossary, summaries of earlier volumes, and a graph of the characters, places and
 relationships seen so far. The same call returns what the page adds to that
-context, so each volume starts from what the earlier ones learned. The graph is
-scoped by volume, so a volume 3 prompt never sees a volume 12 spoiler.
+context, so each volume starts from what the earlier ones learned. Everything
+is scoped to the page being translated, so a volume 3 prompt never sees a
+volume 12 spoiler, and page 1 never sees page 40.
 
 Any OpenAI-compatible endpoint works. Tome is built and tested against
 **Gemma 4** (`gemma4:31b`, [model card](https://ai.google.dev/gemma/docs/core/model_card_4),
@@ -96,20 +103,20 @@ local-OCR engine and the dev loop are covered in [docs/ONBOARDING.md](docs/ONBOA
 ## Status
 
 Works end to end: ingest a scan archive or a digital book, classify, OCR or
-vision, translate, read, export, and resume a stopped volume from the next
-unfinished page. Not done yet: per-page memory, region bounding boxes (the reader
-is a text panel, not an overlay) and quality gates. The full list is in
-[docs/ROADMAP.md](docs/ROADMAP.md#open).
+vision, translate with page-scoped memory, read, check, export, and resume a
+stopped volume from the next unfinished page. 112 tests run on every push. What
+shipped, and the choices made on purpose, are in
+[docs/ROADMAP.md](docs/ROADMAP.md).
 
 ## Docs
 
 | | |
 |---|---|
-| [Architecture](docs/ARCHITECTURE.md) | layout, the pipeline stage by stage, the agent loop, shipped vs designed |
+| [Architecture](docs/ARCHITECTURE.md) | layout, the pipeline stage by stage, the librarian, what ships |
 | [Graph memory](docs/GRAPH-MEMORY.md) | how the series memory works, with diagrams |
 | [Models and agent skill](docs/MODELS.md) | Gemma 4, swapping models, the portable [librarian skill](skills/tome-librarian/SKILL.md) |
-| [Deployment](docs/DEPLOYMENT.md) | systemd, a reverse proxy, the two subpath knobs |
-| [Roadmap](docs/ROADMAP.md) | what shipped and what is open |
+| [Deployment](docs/DEPLOYMENT.md) | systemd, a reverse proxy, the two subpath knobs, S3 storage |
+| [Roadmap](docs/ROADMAP.md) | what shipped, and the choices made on purpose |
 | [Onboarding](docs/ONBOARDING.md) | where to start reading, the dev loop, traps |
 | [Changelog](CHANGELOG.md) | what each release changed |
 

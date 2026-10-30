@@ -2,9 +2,9 @@ from abc import ABC, abstractmethod
 
 
 class ObjectStore(ABC):
-    """Minimal object-store interface. The app only depends on this contract,
-    so swapping LocalObjectStore for an S3 implementation later requires no
-    changes to services/routers — only the factory."""
+    """Minimal object-store interface. The app only depends on this contract:
+    LocalObjectStore and S3ObjectStore are interchangeable, and the factory
+    picks one from STORAGE_BACKEND."""
 
     @abstractmethod
     def put(self, key: str, data: bytes, content_type: str = "application/octet-stream") -> None:
@@ -29,6 +29,6 @@ class ObjectStore(ABC):
 
     @abstractmethod
     def url(self, key: str) -> str:
-        """Public-ish URL the frontend can load. For local storage this is a
-        path served by routers/files.py; for S3 it could be a presigned URL."""
+        """URL the frontend can load: a path served by routers/files.py, for
+        both backends, so a bucket never has to be public."""
         ...

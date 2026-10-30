@@ -37,7 +37,7 @@
 <path d="M1020,455 H1056" fill="none" stroke="#a1a1aa" stroke-width="1.5" marker-end="url(#arr)"/>
 <rect x="1060" y="160" width="300" height="390" rx="10" fill="#18181b" stroke="#3f3f46" stroke-width="1.5"/>
 <text x="1085" y="198" text-anchor="start" fill="#fafafa" font-size="21" font-weight="600">Tools</text>
-<text x="1085" y="224" text-anchor="start" fill="#a1a1aa" font-size="16">20 in ingest, 16 in chat</text>
+<text x="1085" y="224" text-anchor="start" fill="#a1a1aa" font-size="16">20 in ingest, 17 in chat</text>
 <text x="1085" y="270" text-anchor="start" fill="#fafafa" font-size="15" font-weight="700">INSPECT</text>
 <text x="1085" y="294" text-anchor="start" fill="#a1a1aa" font-size="16">upload groups, pages, books</text>
 <text x="1085" y="328" text-anchor="start" fill="#fafafa" font-size="15" font-weight="700">ORGANISE</text>

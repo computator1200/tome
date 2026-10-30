@@ -47,7 +47,7 @@ _UA_PAGE = (
     "Chrome/126.0.0.0 Safari/537.36"
 )
 # Wikimedia blocks spoofed browser agents and wants a real, contactable one.
-_UA_WIKI = "TomeBot/0.1 (https://github.com/computator1200/tome; book metadata)"
+_UA_WIKI = "TomeBot/0.2 (https://github.com/computator1200/tome; book metadata)"
 
 log = get_logger("agent_tools")
 

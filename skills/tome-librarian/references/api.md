@@ -31,7 +31,12 @@ installed: only the vision engine can translate.
 
 | Method | Path | Notes |
 | --- | --- | --- |
-| GET | `/api/series/{id}/memory` | Optional `?volume=N` scopes to what was known by that volume |
+| GET | `/api/series/{id}/memory` | Optional `?volume=N` scopes to what was known by that volume. Entities carry their other names and English rendering |
+| GET | `/api/series/{id}/memory/entities` | Every entity with all its names, unscoped |
+| POST | `/api/series/{id}/memory/merge` | `{"keep_id": "...", "drop_id": "..."}`: two entries are one entity |
+| POST | `/api/series/{id}/memory/aliases/{alias_id}/split` | Make a wrongly merged name its own entity |
+| DELETE | `/api/series/{id}/memory/entities/{entity_id}` | Remove an entity with its names and relations |
+| DELETE | `/api/series/{id}/memory/edges/{edge_id}` | Remove one relation |
 
 ```json
 {
@@ -61,6 +66,7 @@ installed: only the vision engine can translate.
 | POST | `/api/volumes/{id}/process` | Enqueues a run. **The user's click, not yours** |
 | POST | `/api/volumes/{id}/cancel` | Cancels a queued or running job |
 | POST | `/api/volumes/{id}/resume` | Resumes from the last finished page |
+| GET | `/api/volumes/{id}/quality` | Glossary consistency: terms rendered differently, with pages, and terms new in this volume |
 | GET | `/api/volumes/{id}/export.pdf` | 400 if the volume has no translation yet |
 | GET | `/api/volumes/{id}/export.epub` | Same rule |
 

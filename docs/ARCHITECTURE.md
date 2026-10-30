@@ -1,10 +1,10 @@
 # Architecture
 
-How the pieces fit, stage by stage. Every number below was read from the code
-at the cited `file:line` (main as of 2026-10-24). If you change one of those
-lines, update this file, and the diagram if it shows the number, in the same
-commit. The diagrams are `docs/images/pipeline.svg` and `librarian.svg`, with
-PNG renders beside them for GitHub.
+How the pieces fit, stage by stage. Each table names the file and function that
+implement a stage, so you can go straight to the code. The diagrams are
+`docs/images/pipeline.svg` and `librarian.svg`, with PNG renders beside them for
+GitHub; if you change what a diagram shows, change the diagram in the same
+commit.
 
 ---
 
@@ -14,36 +14,39 @@ PNG renders beside them for GitHub.
 frontend/          React + TypeScript + Vite + shadcn/ui
 backend/           FastAPI + SQLAlchemy (async) + SQLite
   routers/         HTTP surface
-  services/        pipeline · llm · ingest · documents · agent · metadata
-  storage_backend/ object store (local now, S3-shaped interface)
+  services/        pipeline · llm · memory · quality · ingest · documents · agent · metadata
+  storage_backend/ object store: local disk or S3
 ```
 
 A **series** holds **volumes**; a volume holds **pages**. A page is either an
 image (a scan) or a text block (a digital chapter). Translation runs per page,
-but the context handed to the model is per series. After a volume completes,
-its summary is fed forward as context for the next one. The `jobs` table is the
-single source of truth for progress, so a refresh or a restart does not lose
-the state.
+and every model call carries the series context as of that page: the glossary,
+the summaries of earlier volumes, and what the [series memory](GRAPH-MEMORY.md)
+knows by then. The `jobs` table is the single source of truth for progress, and
+also counts what each volume cost, so a refresh or a restart loses neither.
 
 Storage:
 
 - `backend/storage_backend/` is the only place allowed to touch a page file.
   Keys look like `volumes/<volume_id>/pages/0000.jpg`; database rows point at
   them, so keys are never renamed.
-- Local disk today, behind an S3-shaped interface (`STORAGE_BACKEND=local`; s3
-  is not implemented).
+- `STORAGE_BACKEND=local` (the default) keeps objects on disk;
+  `STORAGE_BACKEND=s3` keeps them in an S3 bucket, or anything that speaks the
+  S3 API (MinIO, Garage, R2), configured with the `S3_*` variables in
+  `.env.example`. Either way pages are served through `/files/`, so a bucket
+  never has to be public.
 - SQLite for the index (`DATABASE_URL`), images by key. The original digital
   source (EPUB) is kept as well, so a translated EPUB can be repacked from it.
 
 Three decisions that everything else leans on:
 
 1. **Pages are objects, not database blobs.** A page image is stored by key; the
-   database holds the index. Swapping local disk for S3 is a backend, not a
+   database holds the index. Swapping local disk for S3 is a setting, not a
    migration.
-2. **A translated page is regions, not a string.** Every region has text and
-   `x`/`y`/`width`/`height` columns, which is what the reader, the PDF re-layout
-   and page-level diffing read. Nothing fills the coordinates yet (see the table
-   at the end), so the reader is a text panel, not an overlay.
+2. **A translated page is regions, not a string.** Every region has its text and
+   a box (`x`, `y`, `width`, `height` as percentages of the page). The reader and
+   the PDF place each translation over its source block when a page's regions
+   all have boxes, and set the page as one column when they do not.
 3. **One OpenAI-compatible endpoint.** `services/llm.py` talks to anything that
    speaks Chat Completions, so the app runs against a hosted model or a local
    runner without code changes. See [MODELS.md](MODELS.md).
@@ -54,187 +57,156 @@ Three decisions that everything else leans on:
 
 ![The translation pipeline: a volume is classified, read by one model call carrying the series context, written, and what it learned feeds the next volume.](images/pipeline.png)
 
-A single worker task drains an in-process `asyncio.Queue`
-([worker.py](../backend/services/worker.py) `enqueue` :25, `_run` :30), so
-only one volume is processed at a time. Each volume goes through
-`process_volume()` ([pipeline.py](../backend/services/pipeline.py) :166).
-
-The diagram shows five boxes; the table below carries the detail behind
-them. Box 1 is row 1, box 2 is row 2, box 3 ("Read the page") covers the OCR
-half of rows 3a and 3b, box 4 ("Translate in batches") covers row 4 and the
-batching in 3b, and box 5 is rows 5–7. Two simplifications in the picture:
-the `vision` engine reads and translates a page in one call, so it never
-batches; and `kind = text` volumes skip boxes 2 and 3 (row 3c).
+`services/worker.py` runs a dispatcher over an in-process `asyncio.Queue`. It
+processes up to `volume_concurrency` volumes at once (Settings, default 1),
+never two of the same series, because a volume's prompts build on the volumes
+before it. Each volume goes through `pipeline.process_volume()`.
 
 | # | Stage | File · function | What to know |
 |---|---|---|---|
-| 1 | Ingest | [routers/volumes.py](../backend/routers/volumes.py) `create_volume` :32; [ingest.py](../backend/services/ingest.py) `extract_group_to_volume` :452, `create_text_volume` :401 | Page images go to the object store under `volumes/<id>/pages/0000.ext` (volumes.py:80); the DB holds only the key. |
-| 2 | Classify | [page_classifier.py](../backend/services/page_classifier.py) `classify_page` :16, called from pipeline.py:201-209 | OpenCV pixel statistics. Runs on every page, sequentially, on every run. Only `text` and `mixed` pages continue (pipeline.py:36, :211). |
-| 3a | vision engine | pipeline.py `_run_vision` :324 → [llm.py](../backend/services/llm.py) `vision_ocr_translate` :377 | One call per page: image and glossary in, regions out. |
-| 3b | ocr_text engine | pipeline.py `_run_ocr_text` :366 | OCR first: `llm.ocr_page_vision` :351 when `OCR_BACKEND=vision` (the default, config.py:23), or `services/ocr.py` `ocr_page` sequentially for `manga_ocr`. Then `translate_text` on batches of `batch_size` pages. |
-| 3c | text volumes | pipeline.py `_run_text_volume` :260 | Digital books skip stages 2 and OCR. Blocks are chunked per chapter. |
-| 4 | LLM call | llm.py `_context_block` :68, `_chat` :173, `translate_text` :261 | The prompt carries title, author, genres, synopsis `[:1200]`, earlier volumes' summaries `[:4000]`, and the glossary as `source -> target` lines. |
-| 5 | Write | pipeline.py `_replace_regions` :478, `_merge_new_terms` :113 | Regions are replaced per page. New terms returned by the model go into `glossary_terms`, deduplicated by source string. All DB writes go through one `asyncio.Lock` because the session is shared. |
-| 6 | Summarize | pipeline.py `_summarize_volume` :138 → llm.py `summarize` :325 | Its output becomes `Volume.summary`, which is the context for later volumes (pipeline.py:128). |
-| 7 | Read / export | [routers/export.py](../backend/routers/export.py) `export.epub` :45, `export.pdf` :102; progress SSE [routers/process.py](../backend/routers/process.py) :90 | Progress is the `Job` row, polled every 0.5 s. |
+| 1 | Ingest | `routers/volumes.py` `create_volume`; `services/ingest.py` `extract_group_to_volume`, `create_text_volume` | Page images go to the object store under `volumes/<id>/pages/0000.ext`; the database holds only the key. |
+| 2 | Classify | `services/page_classifier.py` `classify_page` | OpenCV pixel statistics. Runs on every scan page; only `text` and `mixed` pages continue. Text volumes skip it. |
+| 3a | vision engine | `pipeline._run_vision` → `llm.vision_ocr_translate` | One call per page: image in, translated regions with boxes out. |
+| 3b | ocr_text engine | `pipeline._run_ocr_text` | OCR first, with `llm.ocr_page_vision` (`OCR_BACKEND=vision`, the default) or `services/ocr.py` for `manga_ocr`; then `llm.translate_text` on batches of `batch_size` pages. |
+| 3c | text volumes | `pipeline._run_text_volume` | Digital books: blocks are chunked per chapter and translated directly. |
+| 4 | Context | `pipeline._prompt_parts` → `memory.build_context`, `memory.glossary_for`; `llm._context_block` | Built for each model call, scoped to its page: title, author, genres, synopsis, earlier volumes' summaries, the memory block, and the glossary, with the names in the text first. |
+| 5 | Write | `pipeline._replace_regions`, `pipeline._merge_new_terms` | Regions are replaced per page and committed. Then new glossary terms and the memory extraction are recorded at the page's position, the memory in its own session. |
+| 6 | Summarise | `pipeline._summarize_volume` → `llm.summarize` | Becomes `Volume.summary`, the context for later volumes. |
+| 7 | Read / export | `components/Reader.tsx`, `PageView.tsx`; `routers/export.py` | The reader places text on its boxes or shows a column. Exports are built once per state of the translation, cached under `_exports/` in the storage directory, and streamed from the file. |
 
 ### Numbers
 
 | Value | Where |
 |---|---|
-| `OPENAI_CONCURRENCY` default **4** | [config.py](../backend/config.py):20; runtime fallback provider.py:49 |
-| Concurrency is per stage: one `asyncio.Semaphore(_concurrency())` per stage | pipeline.py:56, :282, :332, :386, :432 |
-| `batch_size` default **5**, clamped to **1–20** | db/models.py:129; routers/volumes.py:37; pipeline.py:427 |
-| Text chunks: at most **40** blocks; a chunk is closed once it is **over 4000** characters, so one chunk can run past 4000 | pipeline.py:256-257, :271 |
-| Glossary in the prompt: first **200** terms | llm.py:65, :91 |
-| `_chat` retries: **3** attempts, sleeping 1 s then 2 s; 400/401/403/404 are not retried | llm.py:170-200 |
-| LLM timeout default **180 s** | config.py:18 |
-| Temperature **0.3** (translation), **0.2** (agent) | llm.py:150, :219 |
-
-**Image volumes are chunked by page count, not by a character budget.** The
-character budget (4000) exists only for `kind = text` volumes.
+| Model calls in flight per volume: `concurrency`, default **4** | `config.OPENAI_CONCURRENCY`; Settings |
+| Volumes at once: `volume_concurrency`, default **1** | Settings; `worker._dispatch` |
+| `batch_size` default **5**, clamped to **1 to 20** | `db/models.Volume`; `pipeline._run_ocr_text` |
+| Text chunks: at most **40** blocks; a chunk closes once it is over **4000** characters | `pipeline._TEXT_CHUNK_BLOCKS`, `_TEXT_CHUNK_CHARS` |
+| Memory block: up to **40** names and **40** relations, names in the text never cut | `memory.build_context` |
+| Glossary in the prompt: up to **200** terms, terms in the text first | `memory.glossary_for` |
+| `_chat` retries: **3** attempts, sleeping 1 s then 2 s; 400/401/403/404 are not retried | `llm._chat` |
+| Model timeout default **180 s** | `config.OPENAI_TIMEOUT` |
+| Temperature **0.3** (translation), **0.2** (agent) | `llm._create`, `llm.chat_with_tools` |
 
 ### Isolation (what one failure takes down)
 
-| Path | Unit | Where |
+| Path | Unit | How |
 |---|---|---|
-| vision | one page | `LLMError` caught per page, pipeline.py:343-350; siblings keep running thanks to `gather(..., return_exceptions=True)` :362 |
-| ocr_text translate | one **batch** (up to `batch_size` pages) | pipeline.py:449-455; failed count += `len(batch)` |
-| text volumes | one chunk | pipeline.py:299-306 |
-| volume outcome | `failed > 0` → volume `error` with a count | pipeline.py:224-230 |
-| resume | finished pages are skipped | `_is_translated` :157, `_has_ocr` :162 |
+| vision | one page | an `LLMError` is caught per page; siblings keep running |
+| ocr_text, reading | one page | a page the OCR model or local OCR cannot read is counted as failed |
+| ocr_text, translating | one page | a failed batch is retried page by page, so one bad page costs one page |
+| text volumes | one chunk | the failure message counts chunks, not pages |
+| anything else a task raises | its unit | `pipeline._unexpected` counts what `gather` would otherwise swallow |
+| memory | nothing | written in its own session; a bad payload rolls back only itself |
+| volume outcome | | `failed > 0` ends the volume as `error` with a count, not `done` |
+| resume | | finished pages are skipped (`_is_translated`, `_has_ocr`) |
 
-Gaps:
+### Cost
 
-- Vision-OCR failure sets the page's regions to `[]` and is **not counted** as
-  failed (pipeline.py:396-398). The page drops out of `pages_with_text` (:425),
-  so the volume can finish `done` with untranslated pages.
-- `manga_ocr` has no try/except around `ocr_page` (pipeline.py:415), so one
-  bad page aborts the whole volume through the outer handler (:243).
-- Any exception other than `LLMError` inside a task (for example `store.get`
-  failing) is swallowed by `gather(return_exceptions=True)` and never counted
-  (pipeline.py:320, :362, :409, :474).
+`llm.track_usage()` counts every model call made while a volume is processed:
+calls, prompt and completion tokens, and time. `pipeline._save_usage` adds them
+to the volume's `Job` (a resume adds, a fresh run starts again), and the API
+returns an estimated cost when prices per million tokens are set in Settings
+(`provider.estimate_cost`). The series page shows it on each volume.
+
+### Quality
+
+`services/quality.py` has two checks:
+
+- `glossary_report` (`GET /api/volumes/{id}/quality`, the Consistency section of
+  each volume): for every glossary term that occurs in a page's source text and
+  was known by that page, whether the translation uses the agreed rendering.
+  It lists the terms that drifted with their pages, and the terms the volume
+  introduced. No model call.
+- `regression_sample` (`backend/scripts/regression_sample.py`): re-translates a
+  fixed sample of a volume with the current model and prompts, writes nothing,
+  and reports how similar the result is to what is stored. It exits non-zero
+  below a threshold, so it can gate a model or prompt change.
 
 ---
 
-## 2. Agent surface
+## 2. The librarian
 
 ![The librarian: a session loads its history, calls the model, runs the tools it asked for, and repeats.](images/librarian.png)
 
 | Piece | File · function |
 |---|---|
-| Session rows | [db/models.py](../backend/db/models.py) `AgentSession` :209, `AgentMessage` :235 (ordered by `seq`) |
-| Loop | [agent.py](../backend/services/agent.py) `_run` :183: load history (first 2 + last 60 messages, :31-32, :150), call `llm.chat_with_tools` (llm.py:203), append, run tools, repeat |
-| Step caps | ingest **60**, chat **12** (agent.py:30) |
-| Ask / suspend | `ask_user` raises `AskUser` → status `waiting_user` (agent.py:222-240); the user's reply respawns the run from history (`post_user_message` :381) |
-| Restart | running sessions are marked `error`, never auto-resumed (`recover_orphans` :405) |
-| Tools | [agent_tools.py](../backend/services/agent_tools.py) registry :465, `TOOLSETS` :565, `run_tool` :586; results truncated to **8000** chars (:39, :59) |
-| HTTP | [routers/agent.py](../backend/routers/agent.py): `POST /api/ingest` :49, `GET …/stream` :125, `POST …/message` :161, `GET /api/series/{id}/chat` :197 |
-| Panel | [AgentChat.tsx](../frontend/src/components/AgentChat.tsx), [ImportSession.tsx](../frontend/src/components/ImportSession.tsx), `createAgentStream` in [api.ts](../frontend/src/lib/api.ts):251 |
+| Session rows | `db/models.py` `AgentSession`, `AgentMessage` (ordered by `seq`) |
+| Loop | `services/agent.py` `_run`: load history (first 2 and last 60 messages), call `llm.chat_with_tools`, append, run tools, repeat |
+| Step caps | ingest **60**, chat **12** (`agent._MAX_ITERS`) |
+| Ask / suspend | `ask_user` raises `AskUser`, the session waits as `waiting_user`, and the user's reply resumes it from the stored history (`post_user_message`) |
+| Restart | running sessions are marked `error`, never auto-resumed (`recover_orphans`) |
+| Tools | `services/agent_tools.py` `TOOLS`, `TOOLSETS`, `run_tool`; results truncated to **8000** characters |
+| HTTP | `routers/agent.py`: `POST /api/ingest`, `GET …/stream`, `POST …/message`, `GET /api/series/{id}/chat` |
+| Panel | `components/AgentChat.tsx`, `ImportSession.tsx`, `createAgentStream` in `lib/api.ts` |
 
-**SSE and `${BASE}`.** The stream endpoint polls the DB every 0.7 s and emits
-one `message` event per new `AgentMessage` with `seq > after`, plus a `status`
-event whenever the session changes. It closes once the session stops
-`running` (routers/agent.py:125-158). On the client, axios gets
-`baseURL: ${BASE}/api` (api.ts:15-19), but `EventSource` does not go
-through axios. So the URL is built by hand as
-`${BASE}/api/agent/sessions/${id}/stream?after=${seq}` (api.ts:258). `BASE`
-is Vite's `BASE_URL` (from `VITE_BASE`, vite.config.ts:16), and the server
-mounts every router under `URL_PREFIX` (main.py:47-54). Drop the prefix and
-the feed works on `/` but stays silent under a subpath.
+**SSE and `${BASE}`.** The stream endpoint polls the database every 0.7 s and
+emits one `message` event per new `AgentMessage` with `seq > after`, plus a
+`status` event whenever the session changes, and closes once the session stops
+running. On the client, axios gets `baseURL: ${BASE}/api`, but `EventSource`
+does not go through axios, so its URL is built by hand as
+`${BASE}/api/agent/sessions/${id}/stream?after=${seq}`. `BASE` is Vite's
+`BASE_URL` (from `VITE_BASE`), and the server mounts every router under
+`URL_PREFIX`; both must match the mount point (see
+[DEPLOYMENT.md](DEPLOYMENT.md)).
 
-**Can:** create series and volumes and queue translation (ingest only);
-search translated text with FTS5, falling back to LIKE (agent_tools.py:390);
-read a page, capped at 6000 chars (:421); read summaries and the glossary;
-overwrite series metadata; pause on a question.
+**The ingest session (20 tools)** inspects an upload, samples pages, reads
+documents, finds and links metadata, creates the series and its volumes, and
+repairs what arrived broken: `reorder_volumes`, `repair_volume_pages`,
+`convert_pdf_to_scans`.
 
-**Cannot:** delete anything; write the glossary or any region (no tool
-touches `GlossaryTerm` or `Region` for writing); queue translation from a
-chat session; query graph memory (no agent tool reads `memory_*`; the
-graph is only reachable through `GET /api/series/{id}/memory`); stream
-tokens (whole messages only).
+**The series chat (17 tools)** answers from the library: `search_text` (FTS5,
+falling back to LIKE), `read_page` (up to 6000 characters), the summaries, the
+glossary, and `get_memory`, which reads the series graph. It can also make the
+repairs and metadata edits a user asks for.
+
+**Guards in code, not just in the prompt.** `delete_volume`, the one
+irreversible tool, refuses to run unless the user's latest message answered yes
+to an `ask_user` question that named that volume (`agent_tools._user_confirmed`).
+`enqueue_processing` is registered but in neither toolset: translation costs
+money, so only the user starts it.
 
 ---
 
 ## 3. Series graph memory
 
-The code is in [services/memory.py](../backend/services/memory.py).
-[GRAPH-MEMORY.md](GRAPH-MEMORY.md) walks through it with diagrams: entities,
-the aliases that fold into them, typed edges that each carry the volume that
-established them, and the rule that a volume 3 prompt never sees a volume 12
-edge.
+The code is in `services/memory.py`. [GRAPH-MEMORY.md](GRAPH-MEMORY.md) walks
+through it with diagrams: entities, the aliases that fold into them, typed edges
+that each carry the position that established them, how names are resolved, and
+how every prompt is limited to what was known by its page.
 
 | What | Where |
 |---|---|
-| Tables `memory_entities`, `memory_aliases`, `memory_edges` | models.py:273, :291, :307 |
-| Write: model returns `memory` in the translation JSON | llm.py:299-306, :419 |
-| Write: `_merge_new_terms` → `record_extraction`, errors swallowed | pipeline.py:113-144; memory.py:254 |
-| Resolution: normalise → exact alias → difflib ≥ 0.90 → CJK prefix/suffix | memory.py:62, :169, :177-217 |
-| Relations: 19 canonical verbs, kind-checked | memory.py:113, :121, :144 |
-| Read: `build_context(volume_order)` filters `established_volume <= volume_order` | memory.py:323-365 |
-| Prompt block "What is known by volume N" | memory.py:368; pipeline.py:222-225; llm.py:89-90 |
-| API `GET /api/series/{id}/memory?volume=N` | routers/series.py:204 |
-| Tests (13, all passing; 40 in the suite) | tests/test_memory.py |
-
-The flat glossary still runs alongside the graph (pipeline.py:92,
-llm.py:68). The memory block is built once per volume run and is the same
-for every page.
+| Tables `memory_entities`, `memory_aliases`, `memory_edges`; positions on `glossary_terms` | `db/models.py` |
+| Extraction: the model returns `memory` in the translation JSON | `llm.translate_text`, `llm.vision_ocr_translate`, `llm._MEMORY_RULES` |
+| Write, at the page's position, in its own session | `pipeline._merge_new_terms` → `memory.record_extraction`, `memory.record_renderings` |
+| Resolution: normalise, exact alias, fuzzy ≥ 0.90, short form if one person fits | `memory.norm`, `memory.resolve_or_create`, `memory._short_form_of` |
+| Relations: 19 verbs, kind-checked, symmetric ones stored once | `memory.RELATIONS`, `memory.relation_allowed` |
+| Read, per model call | `pipeline._prompt_parts` → `memory.build_context`, `memory.glossary_for`, `memory.render_context` |
+| Upkeep: date old rows, renumber on reorder, re-key aliases | `memory.ensure_positions`, `memory.renumber_volumes`, `memory.upgrade_norms` |
+| Corrections | `routers/series.py` `/memory/merge`, `/memory/aliases/{id}/split`, `/memory/entities/{id}`, `/memory/edges/{id}`; `components/MemoryPanel.tsx` |
+| Tests | `tests/test_memory.py`, `test_memory_review.py`, `test_memory_api.py`, and the memory cases in `test_pipeline.py` |
 
 ---
 
-## What is real vs designed
+## What ships
 
-| Capability | Real | Designed | Evidence |
-|---|---|---|---|
-| Classify scans | ✅ | | page_classifier.py:16 |
-| Vision engine (1 call/page) | ✅ | | pipeline.py:324 |
-| ocr_text engine, batched | ✅ | | pipeline.py:366, :427 |
-| Text-volume chunking | ✅ | | pipeline.py:256-277 |
-| Per-page isolation (vision) | ✅ | | pipeline.py:343 |
-| Per-page isolation (ocr_text) | ⚠️ per batch | | pipeline.py:449 |
-| Region bounding boxes | ❌ always 0 | | llm.py:381 vs :420-426; pipeline.py:486 |
-| Flat glossary, grows from model output | ✅ | | models.py:254, pipeline.py:113 |
-| Glossary capped at 200 terms | ✅ | | llm.py:65 |
-| Previous-volume summaries as context | ✅ | | pipeline.py:128, llm.py:86 |
-| Agent loop, ask_user, two toolsets | ✅ | | agent.py:183, agent_tools.py:565 |
-| Agent SSE feed with `${BASE}` | ✅ | | api.ts:258 |
-| `memory_entities` (series, kind, canonical, first_volume) | ✅ | | models.py:273 |
-| `memory_aliases` (alias, indexed norm, volume, script) | ✅ | | models.py:291; memory.py:220 |
-| `memory_edges` (relation, established_volume, page_id) | ✅ | | models.py:307; memory.py:254 |
-| Volume scoping: only edges with `established_volume <= N` reach volume N's prompt | ✅ | | memory.py:343-344; pipeline.py:222-225 |
-| Edges cite the page that established them | ⚠️ column exists, always `None` | | pipeline.py:355, :395, :533, :554 |
-| Per-page memory retrieval | | 📐 | block is per volume (pipeline.py:224) |
-| Series-wide `Process all` (queues unfinished, skips done) | ✅ | | routers/process.py `process_series` |
-| `reorder_volumes`, `repair_volume_pages` repair tools | ✅ | | services/maintenance.py |
-| `convert_pdf_to_scans` for PDFs with no Unicode text layer | ✅ | | services/ingest.py `render_pdf_group` |
-| Glyph-soup detector (letter ratio below 0.5) | ✅ | | documents.py `_looks_like_glyph_soup` |
-| Technical tool output collapsed by default in the chat | ✅ | | components/AgentChat.tsx |
-| Page committed before the memory write | ✅ | | pipeline.py, all four paths |
-| `check_translation` verifier | | 📐 | design only, not built |
-
-## Where the docs and the code disagree
-
-1. **Isolation is weaker than per page.** For ocr_text it is per batch,
-   up to 20 pages (pipeline.py:449-455). Vision-OCR failures are not counted
-   at all (:396). A `manga_ocr` failure takes down the volume (:415).
-2. **The `vision_ocr_translate` docstring (llm.py:381) promises
-   `x,y,width,height`.** The prompt never asks for coordinates (:395-405) and
-   the parser never stores them (:420-426).
-3. **The glossary cap drops terms arbitrarily.** `Series.glossary` has no
-   `order_by` (models.py:111), so "the first 200" is whatever order the DB
-   returns. Past 200 terms, names silently stop reaching the prompt, even
-   names that appear on the page.
-4. **The flat glossary has no spoiler horizon.** The graph and the
-   summaries are both scoped to the volume (memory.py:343-344;
-   pipeline.py:132). The flat glossary is not (:92). Terms learned in volume
-   12 are still injected when volume 3 is re-run.
-5. **agent_tools.py:4-5 says the chat agent gets "read-only lookup tools".**
-   Its toolset includes `update_series` and `link_series_metadata`, which
-   overwrite series metadata (:125, :194, :565-575).
-6. **"Never call enqueue_processing without asking" is a prompt rule only**
-   (agent.py:79-80). `_enqueue_processing` (agent_tools.py:307) does not check it.
-7. **The text-volume failure message says "page(s) failed"** but counts
-   chunks (pipeline.py:228 vs :302).
-8. **The translate and vision prompts list 17 of the 19 relation verbs.**
-    `kills` and `betrays` are accepted by memory.py:116, but they are missing
-    from the allowed list in llm.py:307-309 and :427-429.
+| Capability | Where |
+|---|---|
+| Classify scans, skip artwork | `page_classifier.classify_page` |
+| Vision engine, one call per page | `pipeline._run_vision` |
+| OCR then translate, batched, retried per page on failure | `pipeline._run_ocr_text` |
+| Text volumes, chunked per chapter | `pipeline._run_text_volume` |
+| Region boxes from the vision model, in any of the scales models answer in | `llm._box` |
+| Reader and PDF place each translation on its box | `PageView.tsx`; `export._render_boxes` |
+| Glossary and graph memory, scoped to the page | `memory.glossary_for`, `memory.build_context` |
+| Previous-volume summaries as context | `pipeline._previous_summaries` |
+| Usage and estimated cost per volume | `llm.track_usage`; `Job`; `provider.estimate_cost` |
+| Consistency report and regression sample | `services/quality.py`; `scripts/regression_sample.py` |
+| Several volumes at once, one per series | `worker._dispatch` |
+| Cached, streamed PDF and EPUB export | `routers/export._cached` |
+| Local or S3 object storage | `storage_backend/local.py`, `s3.py` |
+| `Process all` for a series (queues unfinished, skips done) | `routers/process.py` `process_series` |
+| Repair tools: reorder, re-split, PDF to scans | `services/maintenance.py`; `ingest.render_pdf_group` |
+| Glyph-soup detector for PDFs with no Unicode text | `documents._looks_like_glyph_soup` |
+| Memory corrections in the UI | `MemoryPanel.tsx` |

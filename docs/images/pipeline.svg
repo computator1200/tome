@@ -34,7 +34,7 @@
 <text x="730.0" y="437.0" text-anchor="middle" fill="#fafafa" font-size="21" font-weight="600">Series context</text>
 <text x="730.0" y="467.0" text-anchor="middle" fill="#a1a1aa" font-size="17">title, genres, glossary</text>
 <text x="730.0" y="497.0" text-anchor="middle" fill="#a1a1aa" font-size="17">summaries of earlier volumes</text>
-<text x="730.0" y="527.0" text-anchor="middle" fill="#a1a1aa" font-size="17">memory known by volume N</text>
+<text x="730.0" y="527.0" text-anchor="middle" fill="#a1a1aa" font-size="17">memory known by this page</text>
 <path d="M730,400 V309" fill="none" stroke="#38bdf8" stroke-width="2" marker-end="url(#arrA)"/>
 <text x="745" y="360" text-anchor="start" fill="#38bdf8" font-size="16">in every prompt</text>
 <path d="M1040,295 V475 H904" fill="none" stroke="#38bdf8" stroke-width="2" marker-end="url(#arrA)"/>

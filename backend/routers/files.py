@@ -11,8 +11,8 @@ router = APIRouter(tags=["files"])
 
 @router.get("/files/{key:path}")
 async def get_file(key: str):
-    """Serve an object from the store. For local storage this streams the file
-    directly; an S3 backend would redirect to a presigned URL instead."""
+    """Serve an object from the store. Local storage streams the file directly;
+    any other backend (S3) is read through the store and sent as-is."""
     store = get_store()
     if not key or key.startswith("/") or ".." in key.split("/"):
         raise HTTPException(status_code=404, detail="Not found")
