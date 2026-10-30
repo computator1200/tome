@@ -8,11 +8,12 @@ back into every prompt, scoped to the volume being translated.
 The code is `backend/services/memory.py`, the tables are in
 `backend/db/models.py`, the write hook is `_merge_new_terms()` in
 `backend/services/pipeline.py`, and the HTTP view is `series_memory()` in
-`backend/routers/series.py`. The design document is
-[MEMORY.md](MEMORY.md); this page describes what the code does today.
+`backend/routers/series.py`. This page describes what the code does today.
 
 Across the library the graph currently holds 5,174 entities, 5,417 aliases and
-572 typed relations. Separately, all 57,149 regions (9,207 translated) are indexed in a
+572 typed relations. In an 18-volume series, a volume 1 prompt sees 22 entities
+and 16 relations; the same series at volume 18 sees 80 and 60, the caps.
+Separately, all 57,149 regions (9,207 translated) are indexed in a
 SQLite FTS5 table (`region_fts`) for full-text search over the translated text.
 
 ## 1. The problem
@@ -238,6 +239,14 @@ The graph adds exactly those three things: aliases join names to one person,
 edges join people to each other, and every row carries the volume it came from.
 That last part is what lets Tome hand the model everything the reader already
 knows and nothing they do not.
+
+A vector memory store was considered and rejected. Recall there is top-k by
+similarity, costs around a second and a half per call, and needs a model call on
+every write, which across thousands of pages is hours of waiting and a large
+token bill. Translation needs the opposite: exact, exhaustive and cheap matching
+of every name on the page, and a hard guarantee that a volume 12 relation is not
+in a volume 3 prompt. Three tables and a filter give that guarantee; a vector
+index gives an approximation of it.
 
 ## 6. What it does not do yet
 

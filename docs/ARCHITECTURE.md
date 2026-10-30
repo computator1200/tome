@@ -1,15 +1,10 @@
 # Architecture
 
-Three diagrams and one animation. Every number below was read from the code
+How the pieces fit, stage by stage. Every number below was read from the code
 at the cited `file:line` (main as of 2026-10-24). If you change one of those
-lines, update the diagram and this file in the same commit.
-
-| Diagram | Shows | Status |
-|---|---|---|
-| [pipeline.svg](../assets/diagrams/pipeline.svg) | upload → classify → engine → LLM → regions → reader | real |
-| [pipeline.gif](../assets/diagrams/pipeline.gif) | the same pipeline, animated for the README | real |
-| [agent-loop.svg](../assets/diagrams/agent-loop.svg) | sessions, the tool loop, both toolsets, the SSE feed | real |
-| [memory-graph.svg](../assets/diagrams/memory-graph.svg) | entities, aliases and volume-scoped edges ([MEMORY.md](MEMORY.md)) | real |
+lines, update this file, and the diagram if it shows the number, in the same
+commit. The diagrams are `docs/images/pipeline.svg` and `librarian.svg`, with
+PNG renders beside them for GitHub.
 
 ---
 
@@ -57,7 +52,7 @@ Three decisions that everything else leans on:
 
 ## 1. Translation pipeline
 
-![pipeline](../assets/diagrams/pipeline.svg)
+![The translation pipeline: a volume is classified, read by one model call carrying the series context, written, and what it learned feeds the next volume.](images/pipeline.png)
 
 A single worker task drains an in-process `asyncio.Queue`
 ([worker.py](../backend/services/worker.py) `enqueue` :25, `_run` :30), so
@@ -109,7 +104,7 @@ character budget (4000) exists only for `kind = text` volumes.
 | volume outcome | `failed > 0` → volume `error` with a count | pipeline.py:224-230 |
 | resume | finished pages are skipped | `_is_translated` :157, `_has_ocr` :162 |
 
-Gaps, also drawn in amber on the diagram:
+Gaps:
 
 - Vision-OCR failure sets the page's regions to `[]` and is **not counted** as
   failed (pipeline.py:396-398). The page drops out of `pages_with_text` (:425),
@@ -124,7 +119,7 @@ Gaps, also drawn in amber on the diagram:
 
 ## 2. Agent surface
 
-![agent loop](../assets/diagrams/agent-loop.svg)
+![The librarian: a session loads its history, calls the model, runs the tools it asked for, and repeats.](images/librarian.png)
 
 | Piece | File · function |
 |---|---|
@@ -163,18 +158,11 @@ tokens (whole messages only).
 
 ## 3. Series graph memory
 
-![memory graph](../assets/diagrams/memory-graph.svg)
-
-The code is in [services/memory.py](../backend/services/memory.py), and the
-full description is in [MEMORY.md](MEMORY.md). The diagram shows:
-
-- **Entities.** Rows in `memory_entities`, with their kind.
-- **Aliases.** Rows in `memory_aliases` that fold into one entity, for
-  example リゼット and Lizette.
-- **Typed edges.** Rows in `memory_edges`, each carrying
-  `established_volume`.
-- **The scoping rule.** When translating volume 3, an edge established in
-  volume 12 is not sent.
+The code is in [services/memory.py](../backend/services/memory.py).
+[GRAPH-MEMORY.md](GRAPH-MEMORY.md) walks through it with diagrams: entities,
+the aliases that fold into them, typed edges that each carry the volume that
+established them, and the rule that a volume 3 prompt never sees a volume 12
+edge.
 
 | What | Where |
 |---|---|
@@ -191,18 +179,6 @@ full description is in [MEMORY.md](MEMORY.md). The diagram shows:
 The flat glossary still runs alongside the graph (pipeline.py:92,
 llm.py:68). The memory block is built once per volume run and is the same
 for every page.
-
----
-
-## 4. The animation
-
-[pipeline.gif](../assets/diagrams/pipeline.gif): 1200×600, about 10 s, loops
-forever, and the first frame is identical to the last. It was rendered with
-manim CE 0.21 to a PNG sequence and assembled with Pillow using one shared
-64-colour palette. It uses the same five boxes and footer numbers as
-pipeline.svg. Four pages ride a track under the boxes, and each box lights
-up as a page passes beneath it. The motion is decorative: it does not model
-the vision/ocr_text split or the per-stage concurrency.
 
 ---
 
@@ -234,7 +210,7 @@ the vision/ocr_text split or the per-stage concurrency.
 | Glyph-soup detector (letter ratio below 0.5) | ✅ | | documents.py `_looks_like_glyph_soup` |
 | Technical tool output collapsed by default in the chat | ✅ | | components/AgentChat.tsx |
 | Page committed before the memory write | ✅ | | pipeline.py, all four paths |
-| `check_translation` verifier | | 📐 | design only (`git show 2a5f05a:docs/MEMORY.md`) |
+| `check_translation` verifier | | 📐 | design only, not built |
 
 ## Where the docs and the code disagree
 
@@ -246,8 +222,8 @@ the vision/ocr_text split or the per-stage concurrency.
    the parser never stores them (:420-426).
 3. **The glossary cap drops terms arbitrarily.** `Series.glossary` has no
    `order_by` (models.py:111), so "the first 200" is whatever order the DB
-   returns. Past 200 terms, names silently stop reaching the prompt. MEMORY.md
-   §2.5 rule: a mentioned name is never dropped.
+   returns. Past 200 terms, names silently stop reaching the prompt, even
+   names that appear on the page.
 4. **The flat glossary has no spoiler horizon.** The graph and the
    summaries are both scoped to the volume (memory.py:343-344;
    pipeline.py:132). The flat glossary is not (:92). Terms learned in volume

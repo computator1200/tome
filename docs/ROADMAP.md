@@ -60,7 +60,7 @@ Source language is detected rather than assumed (`services/language.py`).
   page being translated does not narrow it further. It is capped at 80 entities
   and 60 edges, oldest first, and is only as good as the model's extraction:
   relation direction is sometimes wrong, and edges do not yet record the page
-  that established them. See [MEMORY.md](MEMORY.md#limits-stated-plainly).
+  that established them. See [GRAPH-MEMORY.md](GRAPH-MEMORY.md#6-what-it-does-not-do-yet).
 - **Bounding boxes.** `regions` has `x`, `y`, `width`, `height` as percentages of
   the page and the writer stores whatever the model returns, but every one of the
   57,149 regions in the current database is `0,0,0,0`. The reader and the PDF

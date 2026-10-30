@@ -66,14 +66,14 @@ carry a cast of characters across the whole run.
 ## How it works
 
 <div align="center">
-<img src="assets/diagrams/pipeline.gif" width="92%" alt="Tome translation pipeline" />
+<img src="docs/images/pipeline.png" width="92%" alt="The translation pipeline: a volume is classified, read by one model call carrying the series context, written, and what it learned feeds the next volume." />
 </div>
 
-Five stages from upload to reader: ingest, classify, read the page, translate in
-batches with the series glossary attached, then read or export. Alongside the
-translation, the model extracts a per-series graph of characters, aliases and
-relations, and each volume's prompt gets only what was established by that
-volume, so volume 3 never sees a volume-12 spoiler.
+Every page goes through one model call that carries the series context: the
+glossary, summaries of earlier volumes, and a graph of the characters, places and
+relationships seen so far. The same call returns what the page adds to that
+context, so each volume starts from what the earlier ones learned. The graph is
+scoped by volume, so a volume 3 prompt never sees a volume 12 spoiler.
 
 Any OpenAI-compatible endpoint works. Tome is built and tested against
 **Gemma 4** (`gemma4:31b`, [model card](https://ai.google.dev/gemma/docs/core/model_card_4),
@@ -106,8 +106,7 @@ is a text panel, not an overlay) and quality gates. The full list is in
 | | |
 |---|---|
 | [Architecture](docs/ARCHITECTURE.md) | layout, the pipeline stage by stage, the agent loop, shipped vs designed |
-| [Graph memory](docs/GRAPH-MEMORY.md) | what the memory code does today, with diagrams |
-| [Memory design](docs/MEMORY.md) | why the graph exists, how facts get in and out, its limits |
+| [Graph memory](docs/GRAPH-MEMORY.md) | how the series memory works, with diagrams |
 | [Models and agent skill](docs/MODELS.md) | Gemma 4, swapping models, the portable [librarian skill](skills/tome-librarian/SKILL.md) |
 | [Deployment](docs/DEPLOYMENT.md) | systemd, a reverse proxy, the two subpath knobs |
 | [Roadmap](docs/ROADMAP.md) | what shipped and what is open |

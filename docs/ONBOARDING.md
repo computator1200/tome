@@ -92,8 +92,8 @@ sequenceDiagram
 ### Memory: the series graph
 
 `backend/services/memory.py`, the `memory_*` tables in `backend/db/models.py`,
-and `backend/tests/test_memory.py`. How it works: [GRAPH-MEMORY.md](GRAPH-MEMORY.md);
-why: [MEMORY.md](MEMORY.md).
+and `backend/tests/test_memory.py`. How it works, and why it is a
+graph: [GRAPH-MEMORY.md](GRAPH-MEMORY.md).
 
 Start here:
 

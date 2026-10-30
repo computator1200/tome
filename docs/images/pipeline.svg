@@ -1,0 +1,48 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="1400" height="620" viewBox="0 0 1400 620" font-family="ui-sans-serif, system-ui, -apple-system, 'Segoe UI', 'Noto Sans JP', 'Yu Gothic', Meiryo, sans-serif">
+<defs><marker id="arr" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="8" markerHeight="8" orient="auto-start-reverse"><path d="M0,0 L10,5 L0,10 z" fill="#a1a1aa"/></marker><marker id="arrA" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="8" markerHeight="8" orient="auto-start-reverse"><path d="M0,0 L10,5 L0,10 z" fill="#38bdf8"/></marker></defs>
+<rect width="1400" height="620" fill="#09090b"/>
+<text x="40" y="60" text-anchor="start" fill="#fafafa" font-size="30" font-weight="700">Translation pipeline</text>
+<text x="40" y="94" text-anchor="start" fill="#a1a1aa" font-size="20">One volume at a time. What a volume learns goes into the prompts for the next one.</text>
+<rect x="40" y="175" width="220" height="110" rx="10" fill="#18181b" stroke="#3f3f46" stroke-width="1.5"/>
+<text x="150.0" y="207.0" text-anchor="middle" fill="#fafafa" font-size="21" font-weight="600">Volume</text>
+<text x="150.0" y="237.0" text-anchor="middle" fill="#a1a1aa" font-size="17">scan pages, or the</text>
+<text x="150.0" y="267.0" text-anchor="middle" fill="#a1a1aa" font-size="17">chapters of a book</text>
+<path d="M260,230 H296" fill="none" stroke="#a1a1aa" stroke-width="1.5" marker-end="url(#arr)"/>
+<rect x="300" y="175" width="220" height="110" rx="10" fill="#18181b" stroke="#3f3f46" stroke-width="1.5"/>
+<text x="410.0" y="207.0" text-anchor="middle" fill="#fafafa" font-size="21" font-weight="600">Classify</text>
+<text x="410.0" y="237.0" text-anchor="middle" fill="#a1a1aa" font-size="17">scans only:</text>
+<text x="410.0" y="267.0" text-anchor="middle" fill="#a1a1aa" font-size="17">artwork is skipped</text>
+<text x="410" y="315" text-anchor="middle" fill="#a1a1aa" font-size="16">text volumes skip this</text>
+<path d="M520,230 H556" fill="none" stroke="#a1a1aa" stroke-width="1.5" marker-end="url(#arr)"/>
+<rect x="560" y="155" width="340" height="150" rx="10" fill="#18181b" stroke="#38bdf8" stroke-width="2"/>
+<text x="730.0" y="192.0" text-anchor="middle" fill="#fafafa" font-size="21" font-weight="600">One model call</text>
+<text x="730.0" y="222.0" text-anchor="middle" fill="#d4d4d8" font-size="18" font-family="Consolas, 'Cascadia Mono', ui-monospace, monospace">vision: image → regions</text>
+<text x="730.0" y="252.0" text-anchor="middle" fill="#d4d4d8" font-size="18" font-family="Consolas, 'Cascadia Mono', ui-monospace, monospace">ocr_text: OCR, then text</text>
+<text x="730.0" y="282.0" text-anchor="middle" fill="#d4d4d8" font-size="18" font-family="Consolas, 'Cascadia Mono', ui-monospace, monospace">text: chapter chunks</text>
+<path d="M900,230 H936" fill="none" stroke="#a1a1aa" stroke-width="1.5" marker-end="url(#arr)"/>
+<rect x="940" y="165" width="200" height="130" rx="10" fill="#18181b" stroke="#3f3f46" stroke-width="1.5"/>
+<text x="1040.0" y="192.0" text-anchor="middle" fill="#fafafa" font-size="21" font-weight="600">Write</text>
+<text x="1040.0" y="222.0" text-anchor="middle" fill="#a1a1aa" font-size="17">translated regions</text>
+<text x="1040.0" y="252.0" text-anchor="middle" fill="#a1a1aa" font-size="17">new glossary terms</text>
+<text x="1040.0" y="282.0" text-anchor="middle" fill="#a1a1aa" font-size="17">memory</text>
+<path d="M1140,230 H1176" fill="none" stroke="#a1a1aa" stroke-width="1.5" marker-end="url(#arr)"/>
+<rect x="1180" y="175" width="180" height="110" rx="10" fill="#18181b" stroke="#3f3f46" stroke-width="1.5"/>
+<text x="1270.0" y="207.0" text-anchor="middle" fill="#fafafa" font-size="21" font-weight="600">Read</text>
+<text x="1270.0" y="237.0" text-anchor="middle" fill="#a1a1aa" font-size="17">in the reader, or</text>
+<text x="1270.0" y="267.0" text-anchor="middle" fill="#a1a1aa" font-size="17">as EPUB or PDF</text>
+<rect x="560" y="400" width="340" height="150" rx="10" fill="#18181b" stroke="#38bdf8" stroke-width="2"/>
+<text x="730.0" y="437.0" text-anchor="middle" fill="#fafafa" font-size="21" font-weight="600">Series context</text>
+<text x="730.0" y="467.0" text-anchor="middle" fill="#a1a1aa" font-size="17">title, genres, glossary</text>
+<text x="730.0" y="497.0" text-anchor="middle" fill="#a1a1aa" font-size="17">summaries of earlier volumes</text>
+<text x="730.0" y="527.0" text-anchor="middle" fill="#a1a1aa" font-size="17">memory known by volume N</text>
+<path d="M730,400 V309" fill="none" stroke="#38bdf8" stroke-width="2" marker-end="url(#arrA)"/>
+<text x="745" y="360" text-anchor="start" fill="#38bdf8" font-size="16">in every prompt</text>
+<path d="M1040,295 V475 H904" fill="none" stroke="#38bdf8" stroke-width="2" marker-end="url(#arrA)"/>
+<text x="1056" y="380" text-anchor="start" fill="#a1a1aa" font-size="16">glossary and memory: after each page</text>
+<text x="1056" y="404" text-anchor="start" fill="#a1a1aa" font-size="16">summary: when the volume ends</text>
+<text x="40" y="430" text-anchor="start" fill="#fafafa" font-size="18" font-weight="600">A bad page does not stop the volume.</text>
+<text x="40" y="460" text-anchor="start" fill="#a1a1aa" font-size="16">Failures are counted, the volume ends as</text>
+<text x="40" y="484" text-anchor="start" fill="#a1a1aa" font-size="16">error rather than done, and a re-run skips</text>
+<text x="40" y="508" text-anchor="start" fill="#a1a1aa" font-size="16">the pages that are already finished.</text>
+<text x="40" y="540" text-anchor="start" fill="#a1a1aa" font-size="16">Up to 4 model calls in flight.</text>
+</svg>

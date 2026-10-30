@@ -26,7 +26,6 @@ PAGES = {
     "README.md": "Home",
     "ARCHITECTURE.md": "Architecture",
     "GRAPH-MEMORY.md": "Graph-memory",
-    "MEMORY.md": "Memory-design",
     "MODELS.md": "Models",
     "DEPLOYMENT.md": "Deployment",
     "ROADMAP.md": "Roadmap",

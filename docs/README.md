@@ -14,8 +14,7 @@ and the [wiki](https://github.com/computator1200/tome/wiki). Edit them in `docs/
 | | |
 |---|---|
 | [Architecture](ARCHITECTURE.md) | layout, the pipeline stage by stage, the agent loop, shipped vs designed |
-| [Graph memory](GRAPH-MEMORY.md) | what the memory code does today, with diagrams of the write and read paths |
-| [Memory design](MEMORY.md) | why the graph exists, how facts get in and out, its limits |
+| [Graph memory](GRAPH-MEMORY.md) | how the series memory works, with diagrams of the write and read paths |
 | [Models and agent skill](MODELS.md) | Gemma 4, swapping models, the portable librarian skill |
 | [Deployment](DEPLOYMENT.md) | systemd, a reverse proxy, the two subpath knobs, the deploy workflow |
 | [Roadmap](ROADMAP.md) | what shipped and what is open |

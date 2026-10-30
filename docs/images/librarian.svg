@@ -1,0 +1,56 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="1400" height="700" viewBox="0 0 1400 700" font-family="ui-sans-serif, system-ui, -apple-system, 'Segoe UI', 'Noto Sans JP', 'Yu Gothic', Meiryo, sans-serif">
+<defs><marker id="arr" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="8" markerHeight="8" orient="auto-start-reverse"><path d="M0,0 L10,5 L0,10 z" fill="#a1a1aa"/></marker><marker id="arrA" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="8" markerHeight="8" orient="auto-start-reverse"><path d="M0,0 L10,5 L0,10 z" fill="#38bdf8"/></marker></defs>
+<rect width="1400" height="700" fill="#09090b"/>
+<text x="40" y="60" text-anchor="start" fill="#fafafa" font-size="30" font-weight="700">The librarian</text>
+<text x="40" y="94" text-anchor="start" fill="#a1a1aa" font-size="20">A tool-calling loop over the database the app reads. The stored transcript is the state.</text>
+<rect x="40" y="160" width="220" height="110" rx="10" fill="#18181b" stroke="#3f3f46" stroke-width="1.5"/>
+<text x="150.0" y="192.0" text-anchor="middle" fill="#fafafa" font-size="21" font-weight="600">Ingest session</text>
+<text x="150.0" y="222.0" text-anchor="middle" fill="#a1a1aa" font-size="17">organises an upload</text>
+<text x="150.0" y="252.0" text-anchor="middle" fill="#a1a1aa" font-size="17">up to 60 steps</text>
+<rect x="40" y="300" width="220" height="110" rx="10" fill="#18181b" stroke="#3f3f46" stroke-width="1.5"/>
+<text x="150.0" y="332.0" text-anchor="middle" fill="#fafafa" font-size="21" font-weight="600">Series chat</text>
+<text x="150.0" y="362.0" text-anchor="middle" fill="#a1a1aa" font-size="17">one per series</text>
+<text x="150.0" y="392.0" text-anchor="middle" fill="#a1a1aa" font-size="17">up to 12 steps</text>
+<path d="M260,215 C285,215 280,280 296,280" fill="none" stroke="#a1a1aa" stroke-width="1.5" marker-end="url(#arr)"/>
+<path d="M260,355 C285,355 280,280 296,280" fill="none" stroke="#a1a1aa" stroke-width="1.5" marker-end="url(#arr)"/>
+<rect x="300" y="225" width="200" height="110" rx="10" fill="#18181b" stroke="#3f3f46" stroke-width="1.5"/>
+<text x="400.0" y="257.0" text-anchor="middle" fill="#fafafa" font-size="21" font-weight="600">Load history</text>
+<text x="400.0" y="287.0" text-anchor="middle" fill="#a1a1aa" font-size="17">first 2 messages</text>
+<text x="400.0" y="317.0" text-anchor="middle" fill="#a1a1aa" font-size="17">and the last 60</text>
+<path d="M500,280 H536" fill="none" stroke="#a1a1aa" stroke-width="1.5" marker-end="url(#arr)"/>
+<rect x="540" y="225" width="240" height="110" rx="10" fill="#18181b" stroke="#38bdf8" stroke-width="2"/>
+<text x="660.0" y="272.0" text-anchor="middle" fill="#fafafa" font-size="21" font-weight="600">Model call</text>
+<text x="660.0" y="302.0" text-anchor="middle" fill="#d4d4d8" font-size="18" font-family="Consolas, 'Cascadia Mono', ui-monospace, monospace">chat_with_tools()</text>
+<path d="M780,280 H816" fill="none" stroke="#a1a1aa" stroke-width="1.5" marker-end="url(#arr)"/>
+<rect x="820" y="225" width="200" height="110" rx="10" fill="#18181b" stroke="#3f3f46" stroke-width="1.5"/>
+<text x="920.0" y="257.0" text-anchor="middle" fill="#fafafa" font-size="21" font-weight="600">Tool calls?</text>
+<text x="920.0" y="287.0" text-anchor="middle" fill="#a1a1aa" font-size="17">none: reply</text>
+<text x="920.0" y="317.0" text-anchor="middle" fill="#a1a1aa" font-size="17">and stop</text>
+<path d="M920,335 V396" fill="none" stroke="#a1a1aa" stroke-width="1.5" marker-end="url(#arr)"/>
+<text x="935" y="372" text-anchor="start" fill="#a1a1aa" font-size="16">yes</text>
+<rect x="820" y="400" width="200" height="110" rx="10" fill="#18181b" stroke="#3f3f46" stroke-width="1.5"/>
+<text x="920.0" y="432.0" text-anchor="middle" fill="#fafafa" font-size="21" font-weight="600">Run them</text>
+<text x="920.0" y="462.0" text-anchor="middle" fill="#a1a1aa" font-size="17">results are</text>
+<text x="920.0" y="492.0" text-anchor="middle" fill="#a1a1aa" font-size="17">appended</text>
+<path d="M820,455 H400 V339" fill="none" stroke="#a1a1aa" stroke-width="1.5" marker-end="url(#arr)"/>
+<text x="610" y="445" text-anchor="middle" fill="#a1a1aa" font-size="16">next step</text>
+<path d="M1020,455 H1056" fill="none" stroke="#a1a1aa" stroke-width="1.5" marker-end="url(#arr)"/>
+<rect x="1060" y="160" width="300" height="390" rx="10" fill="#18181b" stroke="#3f3f46" stroke-width="1.5"/>
+<text x="1085" y="198" text-anchor="start" fill="#fafafa" font-size="21" font-weight="600">Tools</text>
+<text x="1085" y="224" text-anchor="start" fill="#a1a1aa" font-size="16">20 in ingest, 16 in chat</text>
+<text x="1085" y="270" text-anchor="start" fill="#fafafa" font-size="15" font-weight="700">INSPECT</text>
+<text x="1085" y="294" text-anchor="start" fill="#a1a1aa" font-size="16">upload groups, pages, books</text>
+<text x="1085" y="328" text-anchor="start" fill="#fafafa" font-size="15" font-weight="700">ORGANISE</text>
+<text x="1085" y="352" text-anchor="start" fill="#a1a1aa" font-size="16">series, volumes, metadata</text>
+<text x="1085" y="386" text-anchor="start" fill="#fafafa" font-size="15" font-weight="700">REPAIR</text>
+<text x="1085" y="410" text-anchor="start" fill="#a1a1aa" font-size="16">order, page splits, PDFs</text>
+<text x="1085" y="444" text-anchor="start" fill="#fafafa" font-size="15" font-weight="700">READ</text>
+<text x="1085" y="468" text-anchor="start" fill="#a1a1aa" font-size="16">search the translation</text>
+<text x="1085" y="508" text-anchor="start" fill="#38bdf8" font-size="16">Delete only after the user</text>
+<text x="1085" y="532" text-anchor="start" fill="#38bdf8" font-size="16">says yes to that deletion.</text>
+<text x="40" y="625" text-anchor="start" fill="#fafafa" font-size="18" font-weight="600">ask_user pauses the run.</text>
+<text x="40" y="653" text-anchor="start" fill="#a1a1aa" font-size="16">The session waits; the user's reply resumes it from the stored history.</text>
+<rect x="760" y="600" width="600" height="80" rx="10" fill="#18181b" stroke="#3f3f46" stroke-width="1.5"/>
+<text x="1060" y="632" text-anchor="middle" fill="#a1a1aa" font-size="17">The browser streams new messages from the database,</text>
+<text x="1060" y="658" text-anchor="middle" fill="#a1a1aa" font-size="17">so a refresh loses nothing, and the transcript survives a restart.</text>
+</svg>
